@@ -3,9 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Выбор точки рыбалки</title>
   
-  <!-- Leaflet CSS -->
+  <!-- Разрешаем загрузку Leaflet и Telegram SDK -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self';
+                 script-src 'self' https://unpkg.com https://telegram.org;
+                 style-src 'self' 'unsafe-inline' https://unpkg.com;
+                 img-src 'self' https://*.tile.openstreetmap.org;">
+  
+  <title>Выбор точки рыбалки</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
     body { margin: 0; padding: 0; }
