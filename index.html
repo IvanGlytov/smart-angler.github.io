@@ -4,12 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   
-  <!-- Разрешаем загрузку Leaflet и Telegram SDK -->
+  <!-- CSP: разрешаем только внешние скрипты -->
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'self';
                  script-src 'self' https://unpkg.com https://telegram.org;
                  style-src 'self' 'unsafe-inline' https://unpkg.com;
-                 img-src 'self' https://*.tile.openstreetmap.org;">
+                 img-src 'self' https://*.tile.openstreetmap.org;
+                 connect-src 'self';">
   
   <title>Выбор точки рыбалки</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -20,25 +21,10 @@
 </head>
 <body>
   <div id="map"></div>
-  
-  <!-- Сначала Leaflet JS -->
+
+  <!-- Подключаем внешние скрипты -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <!-- Потом Telegram SDK -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  
-  <script>
-    Telegram.WebApp.ready();
-    Telegram.WebApp.expand();
-    const map = L.map('map').setView([55.75, 37.62], 6);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-    }).addTo(map);
-    
-    map.on('click', function(e) {
-      const { lat, lng } = e.latlng;
-      Telegram.WebApp.sendData(JSON.stringify({ lat, lon: lng }));
-      Telegram.WebApp.close();
-    });
-  </script>
+  <script src="map.js"></script> <!-- ← внешний файл -->
 </body>
 </html>
