@@ -8,8 +8,8 @@
   <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
-    #map { height: 100vh; width: 100%; }
     body { margin: 0; padding: 0; }
+    #map { height: 100vh; width: 100%; }
   </style>
 </head>
 <body>
@@ -18,30 +18,40 @@
   <!-- Telegram WebApp SDK -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script>
-    // Инициализация карты
-    const map = L.map('map').setView([55.75, 37.62], 10); // Москва по умолчанию
+    // Инициализация Telegram WebApp
+    Telegram.WebApp.ready();
+    Telegram.WebApp.expand(); // расширяем на весь экран
+
+    // Инициализация карты (центр — Москва, зум — Россия)
+    const map = L.map('map').setView([55.75, 37.62], 6);
 
     // Слой OpenStreetMap
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap'
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
     }).addTo(map);
 
     // Обработчик клика по карте
     map.on('click', function(e) {
-      const { lat, lng } = e.latlng;
-      
-      // Отправка данных в бот
+      const lat = e.latlng.lat;
+      const lon = e.latlng.lng;
+
+      // Отправка координат в бот
       Telegram.WebApp.sendData(JSON.stringify({
         lat: lat,
-        lon: lng
+        lon: lon
       }));
-      
+
       // Закрытие Mini App
       Telegram.WebApp.close();
     });
 
-    // Показать кнопку "Закрыть" (опционально)
-    Telegram.WebApp.ready();
+    // Опционально: показать маркер при клике
+    map.on('click', function(e) {
+      if (window.marker) {
+        map.removeLayer(window.marker);
+      }
+      window.marker = L.marker([e.latlng.lat, e.latlng.lng]).addTo(map);
+    });
   </script>
 </body>
 </html>
