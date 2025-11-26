@@ -1,46 +1,36 @@
 // map.js
 document.addEventListener("DOMContentLoaded", () => {
-  // Инициализация Telegram WebApp
-  if (window.Telegram?.WebApp) {
-    Telegram.WebApp.ready();
-    Telegram.WebApp.expand();
+  // Загружаем Telegram WebApp SDK
+  if (!window.Telegram || !Telegram.WebApp) {
+    console.error("Telegram WebApp SDK не загружен");
+    return;
   }
 
-  // Функция инициализации карты
-  function initMap(centerLat, centerLon) {
-    const map = L.map('map').setView([centerLat, centerLon], 10);
+  Telegram.WebApp.ready();
+  Telegram.WebApp.expand();
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-    }).addTo(map);
+  // Инициализация карты
+  const map = L.map('map').setView([55.75, 37.62], 6);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap'
+  }).addTo(map);
 
-    let marker;
+  // Обработчик клика
+  map.on('click', function(e) {
+    const lat = e.latlng.lat;
+    const lon = e.latlng.lng; // ← именно lng, но мы отправим как "lon"
 
-    map.on('click', function(e) {
-      const { lat, lon } = e.latlng;
-      if (marker) map.removeLayer(marker);
-      marker = L.marker([lat, lon]).addTo(map);
+    // Опционально: показать маркер
+    if (window.marker) map.removeLayer(window.marker);
+    window.marker = L.marker([lat, lon]).addTo(map);
 
-      if (window.Telegram?.WebApp) {
-        Telegram.WebApp.sendData(JSON.stringify({ lat, lon: lon }));
-        Telegram.WebApp.close();
-      }
-    });
-  }
+    // Отправка данных в бот
+    Telegram.WebApp.sendData(JSON.stringify({
+      lat: lat,
+      lon: lon  // ← ключ "lon", как ожидает Python
+    }));
 
-  // Пытаемся получить геопозицию пользователя
-  if (navigator.geolocation) {
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords;
-        initMap(latitude, longitude);
-      },
-      () => {
-        // Если нет доступа — карта центрируется на Москве
-        initMap(55.75, 37.62);
-      }
-    );
-  } else {
-    initMap(55.75, 37.62);
-  }
+    // Закрытие Mini App
+    Telegram.WebApp.close();
+  });
 });
