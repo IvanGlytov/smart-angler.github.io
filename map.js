@@ -7,7 +7,7 @@ document.addEventListener("DOMContentLoaded", () => {
   Telegram.WebApp.ready();
   Telegram.WebApp.expand();
 
-  const map = L.map('map').setView([55.75, 37.62], 6);
+  const map = L.map('map').setView([55.75, 37.62], 2);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap'
   }).addTo(map);
