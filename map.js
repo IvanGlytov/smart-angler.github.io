@@ -1,36 +1,34 @@
-// map.js
 document.addEventListener("DOMContentLoaded", () => {
-  // Загружаем Telegram WebApp SDK
-  if (!window.Telegram || !Telegram.WebApp) {
-    console.error("Telegram WebApp SDK не загружен");
+  if (!window.Telegram?.WebApp) {
+    console.error("Telegram WebApp не загружен");
     return;
   }
 
   Telegram.WebApp.ready();
   Telegram.WebApp.expand();
 
-  // Инициализация карты
   const map = L.map('map').setView([55.75, 37.62], 6);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap'
   }).addTo(map);
 
-  // Обработчик клика
   map.on('click', function(e) {
     const lat = e.latlng.lat;
-    const lon = e.latlng.lon; 
+    const lng = e.latlng.lng; // ← именно lng, не lon!
 
-    // Опционально: показать маркер
-    if (window.marker) map.removeLayer(window.marker);
-    window.marker = L.marker([lat, lon]).addTo(map);
+    // Удаляем старый маркер
+    if (window.marker) {
+      map.removeLayer(window.marker);
+    }
+    // Добавляем новый маркер
+    window.marker = L.marker([lat, lng]).addTo(map);
 
-    // Отправка данных в бот
+    // Отправляем данные в бот
     Telegram.WebApp.sendData(JSON.stringify({
       lat: lat,
-      lon: lon 
+      lon: lng  // ← в JSON можно назвать "lon", это ок
     }));
 
-    // Закрытие Mini App
     Telegram.WebApp.close();
   });
 });
