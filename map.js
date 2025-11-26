@@ -1,34 +1,46 @@
 // map.js
 document.addEventListener("DOMContentLoaded", () => {
   // Инициализация Telegram WebApp
-  if (window.Telegram && Telegram.WebApp) {
+  if (window.Telegram?.WebApp) {
     Telegram.WebApp.ready();
     Telegram.WebApp.expand();
   }
 
-  // Инициализация карты
-  const map = L.map('map').setView([55.75, 37.62], 6);
+  // Функция инициализации карты
+  function initMap(centerLat, centerLon) {
+    const map = L.map('map').setView([centerLat, centerLon], 10);
 
-  // Слой OpenStreetMap
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-  }).addTo(map);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    }).addTo(map);
 
-  // Обработчик клика
-  map.on('click', function(e) {
-    const lat = e.latlng.lat;
-    const lon = e.latlng.lng;
+    let marker;
 
-    // Удаляем старый маркер
-    if (window.marker) {
-      map.removeLayer(window.marker);
-    }
-    window.marker = L.marker([lat, lon]).addTo(map);
+    map.on('click', function(e) {
+      const { lat, lng } = e.latlng;
+      if (marker) map.removeLayer(marker);
+      marker = L.marker([lat, lng]).addTo(map);
 
-    // Отправка данных в бот
-    if (window.Telegram && Telegram.WebApp) {
-      Telegram.WebApp.sendData(JSON.stringify({ lat, lon }));
-      Telegram.WebApp.close();
-    }
-  });
+      if (window.Telegram?.WebApp) {
+        Telegram.WebApp.sendData(JSON.stringify({ lat, lon: lng }));
+        Telegram.WebApp.close();
+      }
+    });
+  }
+
+  // Пытаемся получить геопозицию пользователя
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        initMap(latitude, longitude);
+      },
+      () => {
+        // Если нет доступа — карта центрируется на Москве
+        initMap(55.75, 37.62);
+      }
+    );
+  } else {
+    initMap(55.75, 37.62);
+  }
 });
