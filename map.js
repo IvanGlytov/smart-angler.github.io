@@ -17,12 +17,12 @@ document.addEventListener("DOMContentLoaded", () => {
     let marker;
 
     map.on('click', function(e) {
-      const { lat, lng } = e.latlng;
+      const { lat, lon } = e.latlng;
       if (marker) map.removeLayer(marker);
-      marker = L.marker([lat, lng]).addTo(map);
+      marker = L.marker([lat, lon]).addTo(map);
 
       if (window.Telegram?.WebApp) {
-        Telegram.WebApp.sendData(JSON.stringify({ lat, lon: lng }));
+        Telegram.WebApp.sendData(JSON.stringify({ lat, lon: lon }));
         Telegram.WebApp.close();
       }
     });
