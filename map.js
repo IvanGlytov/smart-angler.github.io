@@ -14,7 +14,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   map.on('click', function(e) {
     const lat = e.latlng.lat;
-    const lng = e.latlng.lon; // ← именно lng, не lon!
+    const lng = e.latlng.lng; // ← именно lng, не lon!
 
     // Удаляем старый маркер
     if (window.marker) {
@@ -26,7 +26,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Отправляем данные в бот
     Telegram.WebApp.sendData(JSON.stringify({
       lat: lat,
-      lon: lon  // ← в JSON можно назвать "lon", это ок
+      lon: lng  // ← в JSON можно назвать "lon", это ок
     }));
 
     Telegram.WebApp.close();
