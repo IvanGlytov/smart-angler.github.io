@@ -12,29 +12,33 @@ document.addEventListener("DOMContentLoaded", () => {
     attribution: '&copy; OpenStreetMap'
   }).addTo(map);
 
-  // Загружаем слой глубин
-  fetch('desna_depths.geojson')
+  // Загружаем GeoJSON с точками глубин
+  fetch('depths.geojson')
     .then(res => res.json())
     .then(data => {
-      L.geoJSON(data, {
-        pointToLayer: (feature, latlng) => {
-          const depth = feature.properties.depth;
-          let color = '#ffcc00'; // мелководье — жёлтый
-          if (depth > 1.0) color = '#1e90ff'; // средняя глубина — синяя
-          if (depth > 3.0) color = '#00008b'; // глубокая — тёмно-синяя
+      // Конвертируем в формат для heatmap: [lat, lon, вес]
+      const heatPoints = data.features.map(feature => {
+        const lat = feature.geometry.coordinates[1];
+        const lon = feature.geometry.coordinates[0];
+        const depth = feature.properties.depth;
 
-          return L.circleMarker(latlng, {
-            radius: Math.min(4 + depth * 0.8, 10),
-            fillColor: color,
-            color: '#000',
-            weight: 0.5,
-            opacity: 1,
-            fillOpacity: 0.6
-          }).bindPopup(`Глубина: ${depth} м`);
+        // Вес = глубина (чем глубже — тем "горячее")
+        // Или инвертируй, если хочешь мелководье = "горячее"
+        return [lat, lon, depth];
+      });
+
+      // Создаём heatmap
+      L.heatLayer(heatPoints, {
+        radius: 30,        // радиус влияния точки (в пикселях)
+        blur: 20,          // размытие
+        maxZoom: 12,       // не рисовать на очень крупных масштабах
+        gradient: {
+          0.4: '#FFFFFF',  // мелководье — жёлтый
+          0.6: '#1e90ff',  // средняя глубина — синяя
+          1.0: '#00008b'   // глубокая — тёмно-синяя
         }
       }).addTo(map);
-    })
-    .catch(err => console.warn("Слой глубин не загружен:", err));
+    });
 
   // === ОБРАБОТЧИК КЛИКА ===
   map.on('click', function(e) {
