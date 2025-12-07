@@ -41,6 +41,7 @@ document.addEventListener("DOMContentLoaded", () => {
           }
         }
       }).addTo(map);
+    });
 
   // === ОБРАБОТЧИК КЛИКА ===
   map.on('click', function(e) {
