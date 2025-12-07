@@ -1,0 +1,60 @@
+{
+    "type": "FeatureCollection",
+    "features": [
+      {
+        "type": "Feature",
+        "geometry": {
+          "type": "Point",
+          "coordinates": [37.6162, 55.7518]
+        },
+        "properties": {
+          "name": "Глубокая яма",
+          "depth": 5.8,
+          "type": "hole",
+          "waterbody": "Москва-река"
+        }
+      },
+      {
+        "type": "Feature",
+        "geometry": {
+          "type": "Point",
+          "coordinates": [37.5892, 55.7331]
+        },
+        "properties": {
+          "name": "Мелководный перекат",
+          "depth": 1.4,
+          "type": "shoal",
+          "waterbody": "Москва-река"
+        }
+      },
+      {
+        "type": "Feature",
+        "geometry": {
+          "type": "Point",
+          "coordinates": [33.8401, 57.9215]
+        },
+        "properties": {
+          "name": "Котловина Селигера",
+          "depth": 28.0,
+          "type": "hole",
+          "waterbody": "озеро Селигер"
+        }
+      },
+      {
+        "type": "Feature",
+        "geometry": {
+          "type": "LineString",
+          "coordinates": [
+            [37.6100, 55.7500],
+            [37.6120, 55.7510],
+            [37.6140, 55.7520]
+          ]
+        },
+        "properties": {
+          "name": "Скат у набережной",
+          "type": "slope",
+          "waterbody": "Москва-река"
+        }
+      }
+    ]
+  }
