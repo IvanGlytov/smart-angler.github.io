@@ -12,36 +12,29 @@ document.addEventListener("DOMContentLoaded", () => {
     attribution: '&copy; OpenStreetMap'
   }).addTo(map);
 
-  // === ЗАГРУЗКА ЗАГЛУШКИ ГЛУБИН ===
-  fetch('depths_mock.geojson')
+  // Загружаем слой глубин
+  fetch('desna_depths.geojson')
     .then(res => res.json())
     .then(data => {
       L.geoJSON(data, {
         pointToLayer: (feature, latlng) => {
-          const depth = feature.properties.depth || 0;
-          let style = { radius: 8, fillColor: '#00f', color: '#000', weight: 1, fillOpacity: 0.6 };
-      
-          if (feature.properties.type === 'deep_hole') {
-            style = { ...style, radius: 12, fillColor: '#00008b' };
-          } else if (feature.properties.type === 'medium_depth') {
-            style = { ...style, radius: 9, fillColor: '#1e90ff' };
-          } else if (feature.properties.type === 'shoal') {
-            style = { ...style, radius: 7, fillColor: '#ffcc00' };
-          }
-      
-          return L.circleMarker(latlng, style)
-            .bindPopup(`<b>${feature.properties.name}</b><br>Глубина: ${depth} м`);
-        },
-        style: (feature) => {
-          if (feature.properties.type === 'slope') {
-            return { color: '#ff8c00', weight: 4, opacity: 0.8 };
-          }
-          if (feature.properties.type === 'waterbody_outline') {
-            return { color: '#1e90ff', weight: 2, fillOpacity: 0.1 };
-          }
+          const depth = feature.properties.depth;
+          let color = '#ffcc00'; // мелководье — жёлтый
+          if (depth > 1.0) color = '#1e90ff'; // средняя глубина — синяя
+          if (depth > 3.0) color = '#00008b'; // глубокая — тёмно-синяя
+
+          return L.circleMarker(latlng, {
+            radius: Math.min(4 + depth * 0.8, 10),
+            fillColor: color,
+            color: '#000',
+            weight: 0.5,
+            opacity: 1,
+            fillOpacity: 0.6
+          }).bindPopup(`Глубина: ${depth} м`);
         }
       }).addTo(map);
-    });
+    })
+    .catch(err => console.warn("Слой глубин не загружен:", err));
 
   // === ОБРАБОТЧИК КЛИКА ===
   map.on('click', function(e) {
