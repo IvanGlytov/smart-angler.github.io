@@ -13,15 +13,19 @@
 <body>
   <div id="map"></div>
 
-  <!-- Только внешние скрипты, никакого кода внутри <script> -->
-  <!-- Leaflet -->
+  <!-- Leaflet CSS (уже в <head>, но можно и тут — главное один раз) -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <!-- 1. Сначала Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-  <!-- Leaflet.heat -->
+  <!-- 2. Потом плагин heatmap -->
   <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- 3. Telegram WebApp SDK -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+  <!-- 4. Ваш код -->
   <script src="map.js"></script>
 </body>
 </html>
