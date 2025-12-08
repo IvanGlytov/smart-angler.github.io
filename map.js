@@ -29,8 +29,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // Создаём heatmap
       L.heatLayer(heatPoints, {
-        radius: 10,        // радиус влияния точки (в пикселях)
-        blur: 8,          // размытие
+        radius: 8,        // радиус влияния точки (в пикселях)
+        blur: 3,          // размытие
         maxZoom: 12,       // не рисовать на очень крупных масштабах
         gradient: {
           0.0: '#FF0000',   // красный — 0 м
