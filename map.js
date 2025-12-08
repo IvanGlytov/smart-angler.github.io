@@ -13,7 +13,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }).addTo(map);
 
   // Загружаем GeoJSON с точками глубин
-  fetch('depths.geojson')
+  fetch('desna_depths.geojson')
     .then(res => res.json())
     .then(data => {
       // Конвертируем в формат для heatmap: [lat, lon, вес]
