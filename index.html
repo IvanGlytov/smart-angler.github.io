@@ -8,24 +8,21 @@
   <style>
     body { margin: 0; padding: 0; }
     #map { height: 100vh; width: 100%; }
+    .legend {
+      background: rgba(255, 255, 255, 0.9);
+      padding: 8px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
   </style>
 </head>
 <body>
   <div id="map"></div>
 
-  <!-- Leaflet CSS (уже в <head>, но можно и тут — главное один раз) -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-
-  <!-- 1. Сначала Leaflet JS -->
+  <!-- Правильный порядок подключения: Leaflet → Heat (на всякий) → Telegram → ваш код -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-  <!-- 2. Потом плагин heatmap -->
   <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
-
-  <!-- 3. Telegram WebApp SDK -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-
-  <!-- 4. Ваш код -->
-  <script src="map.js"></script>
+  <script src="map.js?v=4"></script>
 </body>
 </html>
