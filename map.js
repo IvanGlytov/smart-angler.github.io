@@ -134,7 +134,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // Загрузка данных глубин
-  fetch('desna_depths.geojson?v=5')
+  fetch('merged_depths.geojson?v=1')
     .then(res => {
       if (!res.ok) throw new Error('Не удалось загрузить данные глубин');
       return res.json();
