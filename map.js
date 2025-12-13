@@ -88,10 +88,26 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // Загрузка данных глубин
-  fetch('merged_depths.geojson?v=2')
+  fetch('merged_depths.geojson?v=3')
     .then(res => {
-      if (!res.ok) throw new Error('Не удалось загрузить данные глубин');
-      return res.json();
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
+      // Проверяем Content-Type
+      const contentType = res.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        console.warn('Предупреждение: Content-Type не JSON, но продолжаем...');
+      }
+      // Получаем текст и парсим вручную для лучшей обработки ошибок
+      return res.text().then(text => {
+        try {
+          return JSON.parse(text);
+        } catch (e) {
+          console.error('Ошибка парсинга JSON:', e);
+          console.error('Первые 500 символов ответа:', text.substring(0, 500));
+          throw new Error(`Ошибка парсинга JSON: ${e.message}`);
+        }
+      });
     })
     .then(data => {
       console.log(`Загружено ${data.features.length} точек глубин`);
@@ -160,6 +176,64 @@ document.addEventListener("DOMContentLoaded", () => {
     })
     .catch(err => {
       console.error('Ошибка загрузки глубин:', err);
+      console.error('Детали ошибки:', err.message, err.stack);
+      
+      // Показываем пользователю сообщение об ошибке
+      const errorDiv = L.control({ position: 'topcenter' });
+      errorDiv.onAdd = () => {
+        const div = L.DomUtil.create('div', 'error-message');
+        div.style.cssText = 'background: rgba(255, 0, 0, 0.8); color: white; padding: 10px; border-radius: 5px; font-size: 12px; text-align: center;';
+        div.innerHTML = `⚠️ Ошибка загрузки данных глубин: ${err.message}`;
+        return div;
+      };
+      errorDiv.addTo(map);
+      
+      // Пробуем загрузить резервный файл
+      console.log('Попытка загрузить резервный файл desna_depths.geojson...');
+      fetch('desna_depths.geojson?v=1')
+        .then(res => {
+          if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+          return res.text().then(text => JSON.parse(text));
+        })
+        .then(data => {
+          console.log(`Загружен резервный файл: ${data.features.length} точек`);
+          // Повторяем логику отображения для резервного файла
+          let pointCount = 0;
+          const maxPoints = 50000;
+          
+          data.features.forEach((feature) => {
+            if (pointCount >= maxPoints) return;
+            
+            const [lon, lat] = feature.geometry.coordinates;
+            const depth = feature.properties.depth;
+
+            if (typeof depth !== 'number' || isNaN(depth)) return;
+            if (typeof lat !== 'number' || typeof lon !== 'number') return;
+
+            const color = getDepthColor(depth);
+            
+            L.circleMarker([lat, lon], {
+              radius: 3,
+              fillColor: color,
+              fillOpacity: 0.7,
+              color: color,
+              weight: 1,
+              opacity: 0.8
+            })
+            .bindTooltip(`${depth.toFixed(1)} м`, {
+              permanent: false,
+              direction: 'auto'
+            })
+            .addTo(map);
+            
+            pointCount++;
+          });
+          
+          console.log(`Отображено ${pointCount} точек из резервного файла`);
+        })
+        .catch(fallbackErr => {
+          console.error('Ошибка загрузки резервного файла:', fallbackErr);
+        });
     });
 
   // Поиск по адресу
