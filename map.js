@@ -81,7 +81,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // === Обработчик клика ===
   map.on('click', function(e) {
     const lat = e.latlng.lat;
-    const lng = e.latlng.lng;
+    const lon = e.latlng.lng;
 
     if (window.marker) {
       map.removeLayer(window.marker);
