@@ -200,10 +200,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const contourColor = getDepthColor(level);
         
-        // Группируем точки в кластеры по близости
+        // Группируем точки в компактные кластеры по близости
         const clusters = [];
         const used = new Set();
-        const clusterDistance = 0.003; // Расстояние для группировки в кластеры
+        const clusterDistance = 0.0015; // Уменьшено расстояние для более компактных кластеров
         
         points.forEach((point, idx) => {
           if (used.has(idx)) return;
@@ -235,30 +235,95 @@ document.addEventListener("DOMContentLoaded", () => {
             });
           }
           
+          // Только кластеры с достаточным количеством точек и ограниченного размера
           if (cluster.length >= 3) {
-            clusters.push(cluster);
+            // Проверяем размер кластера - не создаем слишком большие полигоны
+            let minLat = cluster[0].lat, maxLat = cluster[0].lat;
+            let minLon = cluster[0].lon, maxLon = cluster[0].lon;
+            
+            cluster.forEach(p => {
+              minLat = Math.min(minLat, p.lat);
+              maxLat = Math.max(maxLat, p.lat);
+              minLon = Math.min(minLon, p.lon);
+              maxLon = Math.max(maxLon, p.lon);
+            });
+            
+            const latSpan = maxLat - minLat;
+            const lonSpan = maxLon - minLon;
+            const maxSpan = 0.005; // Максимальный размер кластера (примерно 500 метров)
+            
+            // Создаем полигон только если кластер не слишком большой
+            if (latSpan < maxSpan && lonSpan < maxSpan) {
+              clusters.push(cluster);
+            }
           }
         });
 
-        // Создаём полигоны для каждого кластера
+        // Создаём полигоны для каждого кластера с использованием более точного алгоритма
         clusters.forEach(cluster => {
-          // Строим выпуклую оболочку для кластера
-          const hull = convexHull(cluster);
+          if (cluster.length < 3) return;
+          
+          // Для небольших кластеров используем простой полигон по граничным точкам
+          // Для больших - выпуклую оболочку, но без расширения
+          let hull;
+          
+          if (cluster.length <= 10) {
+            // Для маленьких кластеров строим полигон по граничным точкам
+            // Находим граничные точки (минимальные и максимальные по каждой оси)
+            const sortedByLat = [...cluster].sort((a, b) => a.lat - b.lat);
+            const sortedByLon = [...cluster].sort((a, b) => a.lon - b.lon);
+            
+            // Создаем полигон из граничных точек
+            const boundaryPoints = [
+              sortedByLat[0], // самая южная
+              sortedByLon[sortedByLon.length - 1], // самая восточная
+              sortedByLat[sortedByLat.length - 1], // самая северная
+              sortedByLon[0] // самая западная
+            ];
+            
+            // Убираем дубликаты и сортируем по углу от центра
+            const uniquePoints = [];
+            const seen = new Set();
+            boundaryPoints.forEach(p => {
+              const key = `${p.lat.toFixed(6)},${p.lon.toFixed(6)}`;
+              if (!seen.has(key)) {
+                seen.add(key);
+                uniquePoints.push(p);
+              }
+            });
+            
+            if (uniquePoints.length >= 3) {
+              const center = {
+                lat: uniquePoints.reduce((sum, p) => sum + p.lat, 0) / uniquePoints.length,
+                lon: uniquePoints.reduce((sum, p) => sum + p.lon, 0) / uniquePoints.length
+              };
+              
+              uniquePoints.sort((a, b) => {
+                return Math.atan2(a.lat - center.lat, a.lon - center.lon) - 
+                       Math.atan2(b.lat - center.lat, b.lon - center.lon);
+              });
+              
+              hull = uniquePoints.map(p => [p.lat, p.lon]);
+            } else {
+              hull = convexHull(cluster);
+            }
+          } else {
+            // Для больших кластеров используем выпуклую оболочку
+            hull = convexHull(cluster);
+          }
           
           if (hull && hull.length >= 3) {
-            // Немного расширяем полигон для более плавных границ
-            const expandedHull = expandPolygon(hull, 0.00015);
-            
+            // НЕ расширяем полигон - это предотвращает выход за границы реки
             // Замыкаем полигон
-            const closedHull = [...expandedHull, expandedHull[0]];
+            const closedHull = [...hull, hull[0]];
             
             // Создаём полигон с контурной линией
             L.polygon(closedHull, {
               fillColor: contourColor,
-              fillOpacity: 0.4,
+              fillOpacity: 0.35,
               color: contourColor,
-              weight: 2.5,
-              opacity: 0.9,
+              weight: 2,
+              opacity: 0.85,
               smoothFactor: 1
             })
             .bindTooltip(`${level.toFixed(1)} м`, {
