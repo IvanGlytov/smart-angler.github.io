@@ -86,7 +86,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (window.marker) {
       map.removeLayer(window.marker);
     }
-    window.marker = L.marker([lat, lng]).addTo(map);
+    window.marker = L.marker([lat, lon]).addTo(map);
 
     Telegram.WebApp.sendData(JSON.stringify({ lat, lon }));
     Telegram.WebApp.close();
