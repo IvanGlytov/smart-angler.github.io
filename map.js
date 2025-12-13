@@ -55,30 +55,86 @@ document.addEventListener("DOMContentLoaded", () => {
     return normalized;
   }
 
-  // Функция создания контурного полигона из точек (упрощённый алгоритм)
-  function createContourPolygon(points) {
+  // Алгоритм построения выпуклой оболочки (Graham scan)
+  function convexHull(points) {
     if (points.length < 3) return null;
     
-    // Сортируем точки по углу от центра масс
+    // Находим самую нижнюю точку (и самую левую при равенстве)
+    let bottomPoint = points[0];
+    let bottomIndex = 0;
+    for (let i = 1; i < points.length; i++) {
+      if (points[i].lat < bottomPoint.lat || 
+          (points[i].lat === bottomPoint.lat && points[i].lon < bottomPoint.lon)) {
+        bottomPoint = points[i];
+        bottomIndex = i;
+      }
+    }
+    
+    // Удаляем опорную точку из массива
+    const sorted = points.map((p, i) => ({
+      ...p,
+      index: i
+    }));
+    const pivot = sorted.splice(bottomIndex, 1)[0];
+    
+    // Сортируем по полярному углу относительно опорной точки
+    sorted.sort((a, b) => {
+      const angleA = Math.atan2(a.lat - pivot.lat, a.lon - pivot.lon);
+      const angleB = Math.atan2(b.lat - pivot.lat, b.lon - pivot.lon);
+      if (Math.abs(angleA - angleB) < 0.0001) {
+        // Если углы равны, сортируем по расстоянию
+        const distA = Math.pow(a.lat - pivot.lat, 2) + Math.pow(a.lon - pivot.lon, 2);
+        const distB = Math.pow(b.lat - pivot.lat, 2) + Math.pow(b.lon - pivot.lon, 2);
+        return distA - distB;
+      }
+      return angleA - angleB;
+    });
+    
+    // Строим выпуклую оболочку
+    const hull = [pivot, sorted[0]];
+    
+    for (let i = 1; i < sorted.length; i++) {
+      while (hull.length > 1) {
+        const p1 = hull[hull.length - 2];
+        const p2 = hull[hull.length - 1];
+        const p3 = sorted[i];
+        
+        // Вычисляем векторное произведение
+        const cross = (p2.lon - p1.lon) * (p3.lat - p1.lat) - 
+                      (p2.lat - p1.lat) * (p3.lon - p1.lon);
+        
+        if (cross <= 0) {
+          hull.pop();
+        } else {
+          break;
+        }
+      }
+      hull.push(sorted[i]);
+    }
+    
+    // Преобразуем в массив координат [lat, lon]
+    return hull.map(p => [p.lat, p.lon]);
+  }
+
+  // Функция расширения полигона для более плавных границ
+  function expandPolygon(polygon, expansion = 0.0001) {
+    if (polygon.length < 3) return polygon;
+    
+    // Находим центр масс
     const center = {
-      lat: points.reduce((sum, p) => sum + p.lat, 0) / points.length,
-      lon: points.reduce((sum, p) => sum + p.lon, 0) / points.length
+      lat: polygon.reduce((sum, p) => sum + p[0], 0) / polygon.length,
+      lon: polygon.reduce((sum, p) => sum + p[1], 0) / polygon.length
     };
     
-    const sorted = points.map(p => ({
-      ...p,
-      angle: Math.atan2(p.lat - center.lat, p.lon - center.lon)
-    })).sort((a, b) => a.angle - b.angle);
-    
-    // Создаём полигон из отсортированных точек
-    const polygonCoords = sorted.map(p => [p.lat, p.lon]);
-    polygonCoords.push(polygonCoords[0]); // Замыкаем полигон
-    
-    return polygonCoords;
+    // Расширяем полигон от центра
+    return polygon.map(point => [
+      center.lat + (point[0] - center.lat) * (1 + expansion),
+      center.lon + (point[1] - center.lon) * (1 + expansion)
+    ]);
   }
 
   // Загрузка данных глубин
-  fetch('desna_depths.geojson?v=4')
+  fetch('desna_depths.geojson?v=5')
     .then(res => {
       if (!res.ok) throw new Error('Не удалось загрузить данные глубин');
       return res.json();
@@ -119,8 +175,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // Создаём heatmap с градиентом (базовая заливка)
       const heatLayer = L.heatLayer(heatData, {
-        radius: 35,
-        blur: 25,
+        radius: 40,
+        blur: 30,
         maxZoom: 17,
         gradient: {
           0.0: 'blue',
@@ -132,21 +188,22 @@ document.addEventListener("DOMContentLoaded", () => {
           1.0: 'darkred'
         },
         max: 1.0,
-        minOpacity: 0.35
+        minOpacity: 0.3
       }).addTo(map);
 
-      // Создаём контурные линии для каждого уровня
+      // Создаём контурные области для каждого уровня
       Object.keys(contourGroups).forEach(levelStr => {
         const level = parseFloat(levelStr);
         const points = contourGroups[levelStr];
         
-        if (points.length === 0) return;
+        if (points.length < 3) return; // Нужно минимум 3 точки для полигона
 
         const contourColor = getDepthColor(level);
         
-        // Группируем близкие точки для создания контуров
+        // Группируем точки в кластеры по близости
         const clusters = [];
         const used = new Set();
+        const clusterDistance = 0.003; // Расстояние для группировки в кластеры
         
         points.forEach((point, idx) => {
           if (used.has(idx)) return;
@@ -154,97 +211,62 @@ document.addEventListener("DOMContentLoaded", () => {
           const cluster = [point];
           used.add(idx);
           
-          // Ищем близкие точки
-          points.forEach((otherPoint, otherIdx) => {
-            if (used.has(otherIdx)) return;
-            
-            const distance = Math.sqrt(
-              Math.pow(point.lat - otherPoint.lat, 2) + 
-              Math.pow(point.lon - otherPoint.lon, 2)
-            );
-            
-            if (distance < 0.002) { // Близкие точки
-              cluster.push(otherPoint);
-              used.add(otherIdx);
-            }
-          });
+          // Ищем все близкие точки для этого кластера
+          let foundNew = true;
+          while (foundNew) {
+            foundNew = false;
+            points.forEach((otherPoint, otherIdx) => {
+              if (used.has(otherIdx)) return;
+              
+              // Проверяем расстояние до любой точки в кластере
+              for (const clusterPoint of cluster) {
+                const distance = Math.sqrt(
+                  Math.pow(otherPoint.lat - clusterPoint.lat, 2) + 
+                  Math.pow(otherPoint.lon - clusterPoint.lon, 2)
+                );
+                
+                if (distance < clusterDistance) {
+                  cluster.push(otherPoint);
+                  used.add(otherIdx);
+                  foundNew = true;
+                  break;
+                }
+              }
+            });
+          }
           
-          if (cluster.length > 1) {
+          if (cluster.length >= 3) {
             clusters.push(cluster);
           }
         });
 
-        // Создаём контурные линии из кластеров
+        // Создаём полигоны для каждого кластера
         clusters.forEach(cluster => {
-          if (cluster.length < 2) return;
+          // Строим выпуклую оболочку для кластера
+          const hull = convexHull(cluster);
           
-          // Сортируем точки в кластере для создания линии
-          cluster.sort((a, b) => {
-            const latDiff = a.lat - b.lat;
-            if (Math.abs(latDiff) > 0.0001) return latDiff;
-            return a.lon - b.lon;
-          });
-          
-          // Создаём полилинию
-          const lineCoords = cluster.map(p => [p.lat, p.lon]);
-          
-          L.polyline(lineCoords, {
-            color: contourColor,
-            weight: 3,
-            opacity: 0.85,
-            smoothFactor: 1.5,
-            lineJoin: 'round',
-            lineCap: 'round'
-          })
-          .bindTooltip(`${level.toFixed(1)} м`, {
-            permanent: false,
-            direction: 'auto'
-          })
-          .addTo(map);
-        });
-
-        // Создаём контурные зоны (полигоны) для визуализации областей
-        // Группируем точки в более крупные кластеры для создания полигонов
-        const polygonClusters = [];
-        const polygonUsed = new Set();
-        
-        points.forEach((point, idx) => {
-          if (polygonUsed.has(idx)) return;
-          
-          const cluster = [point];
-          polygonUsed.add(idx);
-          
-          points.forEach((otherPoint, otherIdx) => {
-            if (polygonUsed.has(otherIdx)) return;
+          if (hull && hull.length >= 3) {
+            // Немного расширяем полигон для более плавных границ
+            const expandedHull = expandPolygon(hull, 0.00015);
             
-            const distance = Math.sqrt(
-              Math.pow(point.lat - otherPoint.lat, 2) + 
-              Math.pow(point.lon - otherPoint.lon, 2)
-            );
+            // Замыкаем полигон
+            const closedHull = [...expandedHull, expandedHull[0]];
             
-            if (distance < 0.004) { // Более крупные кластеры для полигонов
-              cluster.push(otherPoint);
-              polygonUsed.add(otherIdx);
-            }
-          });
-          
-          if (cluster.length >= 3) {
-            const polygon = createContourPolygon(cluster);
-            if (polygon) {
-              polygonClusters.push(polygon);
-            }
+            // Создаём полигон с контурной линией
+            L.polygon(closedHull, {
+              fillColor: contourColor,
+              fillOpacity: 0.4,
+              color: contourColor,
+              weight: 2.5,
+              opacity: 0.9,
+              smoothFactor: 1
+            })
+            .bindTooltip(`${level.toFixed(1)} м`, {
+              permanent: false,
+              direction: 'auto'
+            })
+            .addTo(map);
           }
-        });
-
-        // Рисуем контурные полигоны
-        polygonClusters.forEach(polygon => {
-          L.polygon(polygon, {
-            fillColor: contourColor,
-            fillOpacity: 0.25,
-            color: contourColor,
-            weight: 2,
-            opacity: 0.7
-          }).addTo(map);
         });
       });
 
