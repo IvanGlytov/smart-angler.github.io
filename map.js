@@ -33,328 +33,143 @@ document.addEventListener("DOMContentLoaded", () => {
     );
   }
 
-  // Функция получения цвета по глубине с плавным градиентом
+  // Функция получения цвета по глубине (30 градаций от 0 до 15 метров)
   function getDepthColor(depth) {
-    // Плавный градиент от красного (мелко) к синему (глубоко)
-    if (depth < 0.5) return '#FF0000';      // красный
-    if (depth < 1) return '#FF4500';        // оранжево-красный
-    if (depth < 1.5) return '#FF8C00';      // тёмно-оранжевый
-    if (depth < 2) return '#FFA500';        // оранжевый
-    if (depth < 2.5) return '#FFD700';      // золотой
-    if (depth < 3) return '#FFFF00';        // жёлтый
-    if (depth < 4) return '#ADFF2F';        // зелёно-жёлтый
-    if (depth < 5) return '#00CED1';        // тёмно-бирюзовый
-    if (depth < 7) return '#1E90FF';        // синий
-    if (depth < 10) return '#0000FF';       // синий
-    return '#00008B';                        // тёмно-синий
-  }
-
-  // Функция получения интенсивности для heatmap
-  function getIntensity(depth) {
-    const normalized = Math.max(0.2, 1.0 - (depth / 15));
-    return normalized;
-  }
-
-  // Алгоритм построения выпуклой оболочки (Graham scan)
-  function convexHull(points) {
-    if (points.length < 3) return null;
+    // Ограничиваем глубину до 15 метров
+    const clampedDepth = Math.min(Math.max(depth, 0), 15);
     
-    // Находим самую нижнюю точку (и самую левую при равенстве)
-    let bottomPoint = points[0];
-    let bottomIndex = 0;
-    for (let i = 1; i < points.length; i++) {
-      if (points[i].lat < bottomPoint.lat || 
-          (points[i].lat === bottomPoint.lat && points[i].lon < bottomPoint.lon)) {
-        bottomPoint = points[i];
-        bottomIndex = i;
-      }
+    // Нормализуем глубину от 0 до 1 (0-15 метров)
+    const normalized = clampedDepth / 15;
+    
+    // Вычисляем индекс градации (0-29 для 30 градаций)
+    const gradientIndex = Math.min(Math.floor(normalized * 30), 29);
+    
+    // Функция для интерполяции цвета между двумя цветами
+    function interpolateColor(color1, color2, factor) {
+      const r1 = parseInt(color1.substr(1, 2), 16);
+      const g1 = parseInt(color1.substr(3, 2), 16);
+      const b1 = parseInt(color1.substr(5, 2), 16);
+      const r2 = parseInt(color2.substr(1, 2), 16);
+      const g2 = parseInt(color2.substr(3, 2), 16);
+      const b2 = parseInt(color2.substr(5, 2), 16);
+      
+      const r = Math.round(r1 + (r2 - r1) * factor);
+      const g = Math.round(g1 + (g2 - g1) * factor);
+      const b = Math.round(b1 + (b2 - b1) * factor);
+      
+      return '#' + [r, g, b].map(x => {
+        const hex = x.toString(16);
+        return hex.length === 1 ? '0' + hex : hex;
+      }).join('');
     }
     
-    // Удаляем опорную точку из массива
-    const sorted = points.map((p, i) => ({
-      ...p,
-      index: i
-    }));
-    const pivot = sorted.splice(bottomIndex, 1)[0];
+    // Ключевые цвета для градиента (красный → оранжевый → желтый → зеленый → голубой → синий → темно-синий)
+    const keyColors = [
+      '#FF0000', // 0: Красный (0 м)
+      '#FF8000', // Оранжевый (3.75 м)
+      '#FFFF00', // Желтый (7.5 м)
+      '#80FF00', // Зеленый (11.25 м)
+      '#00FFCC', // Голубой (13.125 м)
+      '#0080CC', // Синий (14.0625 м)
+      '#0000CC'  // Темно-синий (15+ м)
+    ];
     
-    // Сортируем по полярному углу относительно опорной точки
-    sorted.sort((a, b) => {
-      const angleA = Math.atan2(a.lat - pivot.lat, a.lon - pivot.lon);
-      const angleB = Math.atan2(b.lat - pivot.lat, b.lon - pivot.lon);
-      if (Math.abs(angleA - angleB) < 0.0001) {
-        // Если углы равны, сортируем по расстоянию
-        const distA = Math.pow(a.lat - pivot.lat, 2) + Math.pow(a.lon - pivot.lon, 2);
-        const distB = Math.pow(b.lat - pivot.lat, 2) + Math.pow(b.lon - pivot.lon, 2);
-        return distA - distB;
-      }
-      return angleA - angleB;
-    });
+    // Разбиваем на 30 градаций между ключевыми цветами
+    const segments = keyColors.length - 1;
+    const segmentSize = 30 / segments; // ~4.29 градаций на сегмент
     
-    // Строим выпуклую оболочку
-    const hull = [pivot, sorted[0]];
+    const segmentIndex = Math.floor(gradientIndex / segmentSize);
+    const segmentFactor = (gradientIndex % segmentSize) / segmentSize;
     
-    for (let i = 1; i < sorted.length; i++) {
-      while (hull.length > 1) {
-        const p1 = hull[hull.length - 2];
-        const p2 = hull[hull.length - 1];
-        const p3 = sorted[i];
-        
-        // Вычисляем векторное произведение
-        const cross = (p2.lon - p1.lon) * (p3.lat - p1.lat) - 
-                      (p2.lat - p1.lat) * (p3.lon - p1.lon);
-        
-        if (cross <= 0) {
-          hull.pop();
-        } else {
-          break;
-        }
-      }
-      hull.push(sorted[i]);
-    }
+    const color1 = keyColors[Math.min(segmentIndex, keyColors.length - 2)];
+    const color2 = keyColors[Math.min(segmentIndex + 1, keyColors.length - 1)];
     
-    // Преобразуем в массив координат [lat, lon]
-    return hull.map(p => [p.lat, p.lon]);
-  }
-
-  // Функция расширения полигона для более плавных границ
-  function expandPolygon(polygon, expansion = 0.0001) {
-    if (polygon.length < 3) return polygon;
-    
-    // Находим центр масс
-    const center = {
-      lat: polygon.reduce((sum, p) => sum + p[0], 0) / polygon.length,
-      lon: polygon.reduce((sum, p) => sum + p[1], 0) / polygon.length
-    };
-    
-    // Расширяем полигон от центра
-    return polygon.map(point => [
-      center.lat + (point[0] - center.lat) * (1 + expansion),
-      center.lon + (point[1] - center.lon) * (1 + expansion)
-    ]);
+    return interpolateColor(color1, color2, segmentFactor);
   }
 
   // Загрузка данных глубин
-  fetch('merged_depths.geojson?v=1')
+  fetch('all_depths.geojson?v=1')
     .then(res => {
       if (!res.ok) throw new Error('Не удалось загрузить данные глубин');
       return res.json();
     })
     .then(data => {
-      // Подготовка данных
-      const heatData = [];
+      console.log(`Загружено ${data.features.length} точек глубин`);
       
-      // Определяем уровни контуров (изолинии)
-      const contourLevels = [0.5, 1, 1.5, 2, 2.5, 3, 4, 5, 7, 10];
-      const contourGroups = {};
+      let pointCount = 0;
+      const maxPoints = 50000; // Ограничение для производительности
       
-      contourLevels.forEach(level => {
-        contourGroups[level] = [];
-      });
-
-      // Обрабатываем все точки
-      data.features.forEach(feature => {
+      // Отображаем каждую точку как кружок
+      data.features.forEach((feature, index) => {
+        // Ограничиваем количество точек для производительности
+        if (pointCount >= maxPoints) return;
+        
         const [lon, lat] = feature.geometry.coordinates;
         const depth = feature.properties.depth;
 
         if (typeof depth !== 'number' || isNaN(depth)) return;
+        if (typeof lat !== 'number' || typeof lon !== 'number') return;
 
-        // Добавляем в heatmap для градиентной заливки
-        heatData.push([lat, lon, getIntensity(depth)]);
-
-        // Группируем по уровням контуров
-        for (let i = 0; i < contourLevels.length; i++) {
-          const level = contourLevels[i];
-          const nextLevel = i < contourLevels.length - 1 ? contourLevels[i + 1] : Infinity;
-          
-          if (depth >= level && depth < nextLevel) {
-            contourGroups[level].push({ lat, lon, depth });
-            break;
-          }
-        }
+        const color = getDepthColor(depth);
+        
+        // Создаем кружок для каждой точки
+        L.circleMarker([lat, lon], {
+          radius: 3, // Размер кружка
+          fillColor: color,
+          fillOpacity: 0.7,
+          color: color,
+          weight: 1,
+          opacity: 0.8
+        })
+        .bindTooltip(`${depth.toFixed(1)} м`, {
+          permanent: false,
+          direction: 'auto'
+        })
+        .addTo(map);
+        
+        pointCount++;
       });
+      
+      console.log(`Отображено ${pointCount} точек`);
 
-      // Создаём heatmap с градиентом (базовая заливка)
-      const heatLayer = L.heatLayer(heatData, {
-        radius: 40,
-        blur: 30,
-        maxZoom: 17,
-        gradient: {
-          0.0: 'blue',
-          0.2: 'cyan',
-          0.4: 'lightblue',
-          0.5: 'yellow',
-          0.7: 'orange',
-          0.9: 'red',
-          1.0: 'darkred'
-        },
-        max: 1.0,
-        minOpacity: 0.3
-      }).addTo(map);
-
-      // Создаём контурные области для каждого уровня
-      Object.keys(contourGroups).forEach(levelStr => {
-        const level = parseFloat(levelStr);
-        const points = contourGroups[levelStr];
-        
-        if (points.length < 3) return; // Нужно минимум 3 точки для полигона
-
-        const contourColor = getDepthColor(level);
-        
-        // Группируем точки в компактные кластеры по близости
-        const clusters = [];
-        const used = new Set();
-        const clusterDistance = 0.0015; // Уменьшено расстояние для более компактных кластеров
-        
-        points.forEach((point, idx) => {
-          if (used.has(idx)) return;
-          
-          const cluster = [point];
-          used.add(idx);
-          
-          // Ищем все близкие точки для этого кластера
-          let foundNew = true;
-          while (foundNew) {
-            foundNew = false;
-            points.forEach((otherPoint, otherIdx) => {
-              if (used.has(otherIdx)) return;
-              
-              // Проверяем расстояние до любой точки в кластере
-              for (const clusterPoint of cluster) {
-                const distance = Math.sqrt(
-                  Math.pow(otherPoint.lat - clusterPoint.lat, 2) + 
-                  Math.pow(otherPoint.lon - clusterPoint.lon, 2)
-                );
-                
-                if (distance < clusterDistance) {
-                  cluster.push(otherPoint);
-                  used.add(otherIdx);
-                  foundNew = true;
-                  break;
-                }
-              }
-            });
-          }
-          
-          // Только кластеры с достаточным количеством точек и ограниченного размера
-          if (cluster.length >= 3) {
-            // Проверяем размер кластера - не создаем слишком большие полигоны
-            let minLat = cluster[0].lat, maxLat = cluster[0].lat;
-            let minLon = cluster[0].lon, maxLon = cluster[0].lon;
-            
-            cluster.forEach(p => {
-              minLat = Math.min(minLat, p.lat);
-              maxLat = Math.max(maxLat, p.lat);
-              minLon = Math.min(minLon, p.lon);
-              maxLon = Math.max(maxLon, p.lon);
-            });
-            
-            const latSpan = maxLat - minLat;
-            const lonSpan = maxLon - minLon;
-            const maxSpan = 0.005; // Максимальный размер кластера (примерно 500 метров)
-            
-            // Создаем полигон только если кластер не слишком большой
-            if (latSpan < maxSpan && lonSpan < maxSpan) {
-              clusters.push(cluster);
-            }
-          }
-        });
-
-        // Создаём полигоны для каждого кластера с использованием более точного алгоритма
-        clusters.forEach(cluster => {
-          if (cluster.length < 3) return;
-          
-          // Для небольших кластеров используем простой полигон по граничным точкам
-          // Для больших - выпуклую оболочку, но без расширения
-          let hull;
-          
-          if (cluster.length <= 10) {
-            // Для маленьких кластеров строим полигон по граничным точкам
-            // Находим граничные точки (минимальные и максимальные по каждой оси)
-            const sortedByLat = [...cluster].sort((a, b) => a.lat - b.lat);
-            const sortedByLon = [...cluster].sort((a, b) => a.lon - b.lon);
-            
-            // Создаем полигон из граничных точек
-            const boundaryPoints = [
-              sortedByLat[0], // самая южная
-              sortedByLon[sortedByLon.length - 1], // самая восточная
-              sortedByLat[sortedByLat.length - 1], // самая северная
-              sortedByLon[0] // самая западная
-            ];
-            
-            // Убираем дубликаты и сортируем по углу от центра
-            const uniquePoints = [];
-            const seen = new Set();
-            boundaryPoints.forEach(p => {
-              const key = `${p.lat.toFixed(6)},${p.lon.toFixed(6)}`;
-              if (!seen.has(key)) {
-                seen.add(key);
-                uniquePoints.push(p);
-              }
-            });
-            
-            if (uniquePoints.length >= 3) {
-              const center = {
-                lat: uniquePoints.reduce((sum, p) => sum + p.lat, 0) / uniquePoints.length,
-                lon: uniquePoints.reduce((sum, p) => sum + p.lon, 0) / uniquePoints.length
-              };
-              
-              uniquePoints.sort((a, b) => {
-                return Math.atan2(a.lat - center.lat, a.lon - center.lon) - 
-                       Math.atan2(b.lat - center.lat, b.lon - center.lon);
-              });
-              
-              hull = uniquePoints.map(p => [p.lat, p.lon]);
-            } else {
-              hull = convexHull(cluster);
-            }
-          } else {
-            // Для больших кластеров используем выпуклую оболочку
-            hull = convexHull(cluster);
-          }
-          
-          if (hull && hull.length >= 3) {
-            // НЕ расширяем полигон - это предотвращает выход за границы реки
-            // Замыкаем полигон
-            const closedHull = [...hull, hull[0]];
-            
-            // Создаём полигон с контурной линией
-            L.polygon(closedHull, {
-              fillColor: contourColor,
-              fillOpacity: 0.35,
-              color: contourColor,
-              weight: 2,
-              opacity: 0.85,
-              smoothFactor: 1
-            })
-            .bindTooltip(`${level.toFixed(1)} м`, {
-              permanent: false,
-              direction: 'auto'
-            })
-            .addTo(map);
-          }
-        });
-      });
-
-      // Легенда глубин
+      // Легенда глубин с 30 градациями
       const legend = L.control({ position: 'bottomright' });
       legend.onAdd = () => {
         const div = L.DomUtil.create('div', 'legend');
-        div.style.cssText = 'background: rgba(255, 255, 255, 0.95); padding: 12px; border-radius: 6px; font-size: 11px; box-shadow: 0 2px 8px rgba(0,0,0,0.2);';
-        div.innerHTML = `
-          <div style="font-weight: bold; margin-bottom: 6px; font-size: 12px;">Глубина (м):</div>
-          <div><span style="background:#FF0000; width:18px; height:12px; display:inline-block; margin-right:6px; border:1px solid #333; border-radius:2px;"></span> < 0.5</div>
-          <div><span style="background:#FF8C00; width:18px; height:12px; display:inline-block; margin-right:6px; border:1px solid #333; border-radius:2px;"></span> 1–2</div>
-          <div><span style="background:#FFD700; width:18px; height:12px; display:inline-block; margin-right:6px; border:1px solid #333; border-radius:2px;"></span> 2–3</div>
-          <div><span style="background:#00CED1; width:18px; height:12px; display:inline-block; margin-right:6px; border:1px solid #333; border-radius:2px;"></span> 4–5</div>
-          <div><span style="background:#1E90FF; width:18px; height:12px; display:inline-block; margin-right:6px; border:1px solid #333; border-radius:2px;"></span> 5–7</div>
-          <div><span style="background:#00008B; width:18px; height:12px; display:inline-block; margin-right:6px; border:1px solid #333; border-radius:2px;"></span> > 10</div>
-        `;
+        div.style.cssText = 'background: rgba(255, 255, 255, 0.95); padding: 12px; border-radius: 6px; font-size: 11px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); max-width: 200px;';
+        
+        // Создаем градиентную полосу для легенды
+        let gradientHtml = '<div style="font-weight: bold; margin-bottom: 8px; font-size: 12px;">Глубина (м):</div>';
+        gradientHtml += '<div style="height: 20px; background: linear-gradient(to right, #FF0000, #FF8000, #FFFF00, #80FF00, #00FFCC, #0080CC, #0000CC); border: 1px solid #333; border-radius: 3px; margin-bottom: 6px;"></div>';
+        gradientHtml += '<div style="display: flex; justify-content: space-between; font-size: 10px; color: #666;">';
+        gradientHtml += '<span>0 м</span><span>7.5 м</span><span>15+ м</span>';
+        gradientHtml += '</div>';
+        
+        // Добавляем примеры цветов для ключевых глубин
+        gradientHtml += '<div style="margin-top: 8px; font-size: 10px;">';
+        gradientHtml += '<div><span style="background:#FF0000; width:14px; height:10px; display:inline-block; margin-right:4px; border:1px solid #333; border-radius:2px;"></span> 0-0.5 м (мелко)</div>';
+        gradientHtml += '<div><span style="background:#FFFF00; width:14px; height:10px; display:inline-block; margin-right:4px; border:1px solid #333; border-radius:2px;"></span> 5-7.5 м</div>';
+        gradientHtml += '<div><span style="background:#0080CC; width:14px; height:10px; display:inline-block; margin-right:4px; border:1px solid #333; border-radius:2px;"></span> 12-15 м</div>';
+        gradientHtml += '<div><span style="background:#0000CC; width:14px; height:10px; display:inline-block; margin-right:4px; border:1px solid #333; border-radius:2px;"></span> >15 м (глубоко)</div>';
+        gradientHtml += '</div>';
+        
+        div.innerHTML = gradientHtml;
         return div;
       };
       legend.addTo(map);
     })
     .catch(err => {
       console.error('Ошибка загрузки глубин:', err);
+      // Пробуем загрузить старый файл как fallback
+      return fetch('merged_depths.geojson?v=1')
+        .then(res => res.json())
+        .then(data => {
+          console.log('Загружен резервный файл merged_depths.geojson');
+          // Повторяем логику отображения
+        })
+        .catch(fallbackErr => {
+          console.error('Ошибка загрузки резервного файла:', fallbackErr);
+        });
     });
 
   // Поиск по адресу
