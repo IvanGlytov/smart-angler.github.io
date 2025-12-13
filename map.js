@@ -88,7 +88,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // Загрузка данных глубин
-  fetch('all_depths.geojson?v=1')
+  fetch('merged_depths.geojson?v=2')
     .then(res => {
       if (!res.ok) throw new Error('Не удалось загрузить данные глубин');
       return res.json();
@@ -160,16 +160,6 @@ document.addEventListener("DOMContentLoaded", () => {
     })
     .catch(err => {
       console.error('Ошибка загрузки глубин:', err);
-      // Пробуем загрузить старый файл как fallback
-      return fetch('merged_depths.geojson?v=1')
-        .then(res => res.json())
-        .then(data => {
-          console.log('Загружен резервный файл merged_depths.geojson');
-          // Повторяем логику отображения
-        })
-        .catch(fallbackErr => {
-          console.error('Ошибка загрузки резервного файла:', fallbackErr);
-        });
     });
 
   // Поиск по адресу
