@@ -20,28 +20,37 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Функция для преобразования ссылки Google Drive в прямую ссылку для скачивания
   function getGoogleDriveDownloadUrl(fileIdOrUrl) {
+    let fileId = '';
+    
     // Если это уже прямая ссылка, возвращаем как есть
     if (fileIdOrUrl.startsWith('http://') || fileIdOrUrl.startsWith('https://')) {
-      // Проверяем, это уже прямая ссылка или обычная ссылка Google Drive
-      if (fileIdOrUrl.includes('/uc?') || fileIdOrUrl.includes('export=download')) {
+      // Проверяем, это уже прямая ссылка для скачивания
+      if (fileIdOrUrl.includes('/uc?') && (fileIdOrUrl.includes('export=download') || fileIdOrUrl.includes('id='))) {
         return fileIdOrUrl; // Уже прямая ссылка
       }
       // Извлекаем ID из обычной ссылки Google Drive
       const match = fileIdOrUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
       if (match) {
-        return `https://drive.google.com/uc?export=download&id=${match[1]}`;
+        fileId = match[1];
+      } else {
+        // Если не удалось извлечь ID, возвращаем как есть (может быть другой формат)
+        return fileIdOrUrl;
       }
-      // Если не удалось извлечь ID, возвращаем как есть (может быть другой формат)
-      return fileIdOrUrl;
+    } else {
+      // Если это просто ID файла
+      fileId = fileIdOrUrl;
     }
-    // Если это просто ID файла
-    return `https://drive.google.com/uc?export=download&id=${fileIdOrUrl}`;
+    
+    // Для больших файлов используем формат с confirm=t, чтобы обойти предупреждение
+    // Альтернативный формат: https://drive.google.com/uc?id=FILE_ID&export=download&confirm=t
+    return `https://drive.google.com/uc?id=${fileId}&export=download&confirm=t`;
   }
 
   // Определяем URL для загрузки файла
   let depthsFileUrl;
   if (GOOGLE_DRIVE_DIRECT_URL) {
-    depthsFileUrl = GOOGLE_DRIVE_DIRECT_URL;
+    // Преобразуем ссылку в прямую ссылку для скачивания, если это необходимо
+    depthsFileUrl = getGoogleDriveDownloadUrl(GOOGLE_DRIVE_DIRECT_URL);
   } else if (GOOGLE_DRIVE_FILE_ID) {
     depthsFileUrl = getGoogleDriveDownloadUrl(GOOGLE_DRIVE_FILE_ID);
   } else {
@@ -142,6 +151,16 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       // Получаем текст и парсим вручную для лучшей обработки ошибок
       return res.text().then(text => {
+        // Проверяем, не является ли ответ HTML страницей (Google Drive может вернуть HTML для больших файлов)
+        const trimmedText = text.trim();
+        if (trimmedText.startsWith('<!DOCTYPE') || trimmedText.startsWith('<html') || trimmedText.startsWith('<HTML')) {
+          console.error('Получен HTML вместо JSON. Возможные причины:');
+          console.error('1. Файл слишком большой и Google Drive требует подтверждения');
+          console.error('2. Файл не публичный или ссылка неправильная');
+          console.error('3. Нужно использовать альтернативный формат ссылки');
+          console.error('Первые 500 символов ответа:', text.substring(0, 500));
+          throw new Error('Google Drive вернул HTML страницу вместо файла. Проверьте, что файл публичный и используйте правильный формат ссылки.');
+        }
         try {
           return JSON.parse(text);
         } catch (e) {
