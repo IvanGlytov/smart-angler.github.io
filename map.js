@@ -14,8 +14,21 @@ document.addEventListener("DOMContentLoaded", () => {
   // Или используйте прямую ссылку (если уже преобразовали):
   const GOOGLE_DRIVE_DIRECT_URL = 'https://drive.google.com/file/d/1nbFUjk7jfkuqFHYj--yIjM8jQAbgrcmO/view?usp=sharing'; // Или вставьте прямую ссылку вида: https://drive.google.com/uc?export=download&id=FILE_ID
   
-  // Вариант 2: Использовать локальный файл (если файл на GitHub Pages)
-  const USE_LOCAL_FILE = !GOOGLE_DRIVE_FILE_ID && !GOOGLE_DRIVE_DIRECT_URL;
+  // ВАЖНО: Google Drive блокирует CORS запросы. Используйте один из вариантов:
+  // 1. CORS Proxy (временное решение) - раскомментируйте следующую строку:
+  // const USE_CORS_PROXY = true;
+  // const CORS_PROXY_URL = 'https://corsproxy.io/?'; // или другой прокси
+  const USE_CORS_PROXY = true; // Установите true для использования прокси
+  
+  // 2. GitHub Releases (рекомендуется) - загрузите файл на GitHub Releases и укажите URL:
+  // const GITHUB_RELEASES_URL = 'https://github.com/USERNAME/REPO/releases/download/v1.0/all_depths.geojson';
+  const GITHUB_RELEASES_URL = ''; // URL файла на GitHub Releases
+  
+  // 3. Прямой URL (если файл на другом хостинге без CORS ограничений)
+  const DIRECT_FILE_URL = ''; // Прямой URL к файлу (например, с GitHub Pages, Dropbox и т.д.)
+  
+  // Вариант 4: Использовать локальный файл (если файл на GitHub Pages)
+  const USE_LOCAL_FILE = !GOOGLE_DRIVE_FILE_ID && !GOOGLE_DRIVE_DIRECT_URL && !GITHUB_RELEASES_URL && !DIRECT_FILE_URL;
   const LOCAL_FILE_URL = 'merged_depths.geojson?v=3';
 
   // Функция для преобразования ссылки Google Drive в прямую ссылку для скачивания
@@ -48,11 +61,26 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Определяем URL для загрузки файла
   let depthsFileUrl;
-  if (GOOGLE_DRIVE_DIRECT_URL) {
-    // Преобразуем ссылку в прямую ссылку для скачивания, если это необходимо
-    depthsFileUrl = getGoogleDriveDownloadUrl(GOOGLE_DRIVE_DIRECT_URL);
-  } else if (GOOGLE_DRIVE_FILE_ID) {
-    depthsFileUrl = getGoogleDriveDownloadUrl(GOOGLE_DRIVE_FILE_ID);
+  if (GITHUB_RELEASES_URL) {
+    // Используем GitHub Releases (лучший вариант - нет CORS проблем)
+    depthsFileUrl = GITHUB_RELEASES_URL;
+  } else if (DIRECT_FILE_URL) {
+    // Используем прямой URL
+    depthsFileUrl = DIRECT_FILE_URL;
+  } else if (GOOGLE_DRIVE_DIRECT_URL || GOOGLE_DRIVE_FILE_ID) {
+    // Используем Google Drive (требует CORS proxy)
+    const driveUrl = GOOGLE_DRIVE_DIRECT_URL || GOOGLE_DRIVE_FILE_ID;
+    const directDriveUrl = getGoogleDriveDownloadUrl(driveUrl);
+    
+    if (USE_CORS_PROXY) {
+      // Используем CORS proxy для обхода ограничений Google Drive
+      const proxyUrl = 'https://corsproxy.io/?';
+      depthsFileUrl = proxyUrl + encodeURIComponent(directDriveUrl);
+    } else {
+      // Без прокси не будет работать из-за CORS
+      console.warn('⚠️ Google Drive блокирует CORS. Используйте CORS proxy или загрузите файл на GitHub Releases.');
+      depthsFileUrl = directDriveUrl; // Попробуем, но скорее всего не сработает
+    }
   } else {
     depthsFileUrl = LOCAL_FILE_URL;
   }
