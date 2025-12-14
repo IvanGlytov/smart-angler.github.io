@@ -10,9 +10,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // Конфигурация: URL файла с глубинами
   // Вариант 1: Использовать Google Drive (укажите ID файла или прямую ссылку)
   // Получите ID из ссылки вида: https://drive.google.com/file/d/FILE_ID/view?usp=sharing
-  // const GOOGLE_DRIVE_FILE_ID = ''; // Вставьте сюда ID файла из Google Drive
+  const GOOGLE_DRIVE_FILE_ID = ''; // Вставьте сюда ID файла из Google Drive
   // Или используйте прямую ссылку (если уже преобразовали):
-  // const GOOGLE_DRIVE_DIRECT_URL = ''; // Или вставьте прямую ссылку вида: https://drive.google.com/uc?export=download&id=FILE_ID
+  const GOOGLE_DRIVE_DIRECT_URL = ''; // Или вставьте прямую ссылку вида: https://drive.google.com/uc?export=download&id=FILE_ID
   
   // ВАЖНО: Google Drive блокирует CORS запросы. Используйте один из вариантов:
   // 1. CORS Proxy (временное решение) - раскомментируйте следующую строку:
@@ -21,18 +21,17 @@ document.addEventListener("DOMContentLoaded", () => {
   const USE_CORS_PROXY = false; // Не требуется для GitHub Releases
   
   // 2. GitHub Releases (рекомендуется) - загрузите файл на GitHub Releases и укажите URL:
-  // const GITHUB_RELEASES_URL = 'https://github.com/USERNAME/REPO/releases/download/v1.0/all_depths.geojson';
-  // ВАЖНО: Раскомментируйте следующую строку после загрузки файла на GitHub Releases:
-  // const GITHUB_RELEASES_URL = 'https://github.com/IvanGlytov/smart-angler/releases/download/v1.0/all_depths.geojson';
-  const GITHUB_RELEASES_URL = 'https://github.com/IvanGlytov/smart-angler/releases/download/v1.0/all_depths.geojson'; // URL файла на GitHub Releases (загрузите файл на Releases и вставьте ссылку)
+  const GITHUB_RELEASES_URL = 'https://github.com/IvanGlytov/smart-angler/releases/download/v1.0/all_depths.geojson'; // URL файла на GitHub Releases
   
   // 3. Прямой URL (если файл на другом хостинге без CORS ограничений)
   // Файл уже доступен на GitHub Pages - используйте его:
-  // const DIRECT_FILE_URL = 'https://ivanglytov.github.io/smart-angler.github.io/merged_depths.geojson'; // Прямой URL к файлу
+  const DIRECT_FILE_URL = ''; // Прямой URL к файлу (например: 'https://ivanglytov.github.io/smart-angler.github.io/merged_depths.geojson')
   
   // Вариант 4: Использовать локальный файл (если файл на GitHub Pages)
-  const USE_LOCAL_FILE = !GOOGLE_DRIVE_FILE_ID && !GOOGLE_DRIVE_DIRECT_URL && !GITHUB_RELEASES_URL && !DIRECT_FILE_URL;
   const LOCAL_FILE_URL = 'merged_depths.geojson?v=3';
+  
+  // Определяем, какой источник использовать (приоритет: GitHub Releases > Direct URL > Google Drive > Local)
+  const USE_LOCAL_FILE = !GITHUB_RELEASES_URL && !DIRECT_FILE_URL && !GOOGLE_DRIVE_FILE_ID && !GOOGLE_DRIVE_DIRECT_URL;
 
   // Функция для преобразования ссылки Google Drive в прямую ссылку для скачивания
   function getGoogleDriveDownloadUrl(fileIdOrUrl) {
