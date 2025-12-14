@@ -7,6 +7,47 @@ document.addEventListener("DOMContentLoaded", () => {
   Telegram.WebApp.ready();
   Telegram.WebApp.expand();
 
+  // Конфигурация: URL файла с глубинами
+  // Вариант 1: Использовать Google Drive (укажите ID файла или прямую ссылку)
+  // Получите ID из ссылки вида: https://drive.google.com/file/d/FILE_ID/view?usp=sharing
+  const GOOGLE_DRIVE_FILE_ID = ''; // Вставьте сюда ID файла из Google Drive
+  // Или используйте прямую ссылку (если уже преобразовали):
+  const GOOGLE_DRIVE_DIRECT_URL = 'https://drive.google.com/file/d/1nbFUjk7jfkuqFHYj--yIjM8jQAbgrcmO/view?usp=sharing'; // Или вставьте прямую ссылку вида: https://drive.google.com/uc?export=download&id=FILE_ID
+  
+  // Вариант 2: Использовать локальный файл (если файл на GitHub Pages)
+  const USE_LOCAL_FILE = !GOOGLE_DRIVE_FILE_ID && !GOOGLE_DRIVE_DIRECT_URL;
+  const LOCAL_FILE_URL = 'merged_depths.geojson?v=3';
+
+  // Функция для преобразования ссылки Google Drive в прямую ссылку для скачивания
+  function getGoogleDriveDownloadUrl(fileIdOrUrl) {
+    // Если это уже прямая ссылка, возвращаем как есть
+    if (fileIdOrUrl.startsWith('http://') || fileIdOrUrl.startsWith('https://')) {
+      // Проверяем, это уже прямая ссылка или обычная ссылка Google Drive
+      if (fileIdOrUrl.includes('/uc?') || fileIdOrUrl.includes('export=download')) {
+        return fileIdOrUrl; // Уже прямая ссылка
+      }
+      // Извлекаем ID из обычной ссылки Google Drive
+      const match = fileIdOrUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
+      if (match) {
+        return `https://drive.google.com/uc?export=download&id=${match[1]}`;
+      }
+      // Если не удалось извлечь ID, возвращаем как есть (может быть другой формат)
+      return fileIdOrUrl;
+    }
+    // Если это просто ID файла
+    return `https://drive.google.com/uc?export=download&id=${fileIdOrUrl}`;
+  }
+
+  // Определяем URL для загрузки файла
+  let depthsFileUrl;
+  if (GOOGLE_DRIVE_DIRECT_URL) {
+    depthsFileUrl = GOOGLE_DRIVE_DIRECT_URL;
+  } else if (GOOGLE_DRIVE_FILE_ID) {
+    depthsFileUrl = getGoogleDriveDownloadUrl(GOOGLE_DRIVE_FILE_ID);
+  } else {
+    depthsFileUrl = LOCAL_FILE_URL;
+  }
+
   // Инициализация карты с центром по умолчанию (Москва)
   let map = L.map('map').setView([55.75, 37.62], 7);
   
@@ -88,7 +129,8 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // Загрузка данных глубин
-  fetch('merged_depths.geojson?v=3')
+  console.log('Загрузка файла глубин с URL:', depthsFileUrl);
+  fetch(depthsFileUrl)
     .then(res => {
       if (!res.ok) {
         throw new Error(`HTTP error! status: ${res.status}`);
