@@ -20,12 +20,15 @@ document.addEventListener("DOMContentLoaded", () => {
   // const CORS_PROXY_URL = 'https://corsproxy.io/?'; // или другой прокси
   const USE_CORS_PROXY = false; // Не требуется для GitHub Releases
   
-  // 2. GitHub Releases (рекомендуется) - загрузите файл на GitHub Releases и укажите URL:
-  const GITHUB_RELEASES_URL = 'https://github.com/IvanGlytov/smart-angler/releases/download/v1.0/all_depths.geojson'; // URL файла на GitHub Releases
+  // 2. GitHub Releases (рекомендуется) - загрузите файл на GitHub Releases в ПУБЛИЧНОМ репозитории smart-angler.github.io
+  // ВАЖНО: Репозиторий должен быть публичным, иначе будет ошибка 404!
+  // const GITHUB_RELEASES_URL = 'https://github.com/IvanGlytov/smart-angler.github.io/releases/download/v1.0/all_depths.geojson';
+  const GITHUB_RELEASES_URL = 'https://github.com/IvanGlytov/smart-angler.github.io/releases/download/v1.0/all_depths.geojson'; // Загрузите файл на Releases в репозитории smart-angler.github.io и вставьте ссылку
   
-  // 3. Прямой URL (если файл на другом хостинге без CORS ограничений)
-  // Файл уже доступен на GitHub Pages - используйте его:
-  const DIRECT_FILE_URL = ''; // Прямой URL к файлу (например: 'https://ivanglytov.github.io/smart-angler.github.io/merged_depths.geojson')
+  // 3. Прямой URL (если файл на GitHub Pages или другом хостинге без CORS ограничений)
+  // После загрузки файла на GitHub Pages, используйте:
+  // const DIRECT_FILE_URL = 'https://ivanglytov.github.io/smart-angler.github.io/all_depths.geojson';
+  const DIRECT_FILE_URL = ''; // Прямой URL к файлу
   
   // Вариант 4: Использовать локальный файл (если файл на GitHub Pages)
   const LOCAL_FILE_URL = 'merged_depths.geojson?v=3';
