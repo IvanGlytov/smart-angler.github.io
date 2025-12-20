@@ -12,13 +12,13 @@ document.addEventListener("DOMContentLoaded", () => {
   // Получите ID из ссылки вида: https://drive.google.com/file/d/FILE_ID/view?usp=sharing
   const GOOGLE_DRIVE_FILE_ID = ''; // Вставьте сюда ID файла из Google Drive
   // Или используйте прямую ссылку (если уже преобразовали):
-  const GOOGLE_DRIVE_DIRECT_URL = ''; // Или вставьте прямую ссылку вида: https://drive.google.com/uc?export=download&id=FILE_ID
+  const GOOGLE_DRIVE_DIRECT_URL = 'https://drive.google.com/file/d/1iczQSRP4UwsJrHrtgNFDIQXEI30herLE/view?usp=sharing'; // Или вставьте прямую ссылку вида: https://drive.google.com/uc?export=download&id=FILE_ID
   
   // ВАЖНО: Google Drive блокирует CORS запросы. Используйте один из вариантов:
   // 1. CORS Proxy (временное решение) - раскомментируйте следующую строку:
   // const USE_CORS_PROXY = true;
   // const CORS_PROXY_URL = 'https://corsproxy.io/?'; // или другой прокси
-  const USE_CORS_PROXY = false; // Не требуется для GitHub Releases
+  const USE_CORS_PROXY = true; // Не требуется для GitHub Releases
   
   // 2. GitHub Releases (рекомендуется) - загрузите файл на GitHub Releases в ПУБЛИЧНОМ репозитории smart-angler.github.io
   // ВАЖНО: Репозиторий должен быть публичным, иначе будет ошибка 404!
