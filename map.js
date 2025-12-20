@@ -59,9 +59,12 @@ document.addEventListener("DOMContentLoaded", () => {
       fileId = fileIdOrUrl;
     }
     
-    // Для больших файлов используем формат с confirm=t, чтобы обойти предупреждение
-    // Альтернативный формат: https://drive.google.com/uc?id=FILE_ID&export=download&confirm=t
-    return `https://drive.google.com/uc?id=${fileId}&export=download&confirm=t`;
+    // Для больших файлов Google Drive может показывать страницу подтверждения
+    // Пробуем несколько форматов:
+    // 1. С confirm=yes (может не работать для очень больших файлов)
+    // 2. Без confirm (может работать для файлов среднего размера)
+    // Используем формат без confirm сначала, так как confirm=yes все равно показывает страницу для больших файлов
+    return `https://drive.google.com/uc?export=download&id=${fileId}`;
   }
 
   // Определяем URL для загрузки файла
@@ -187,12 +190,13 @@ document.addEventListener("DOMContentLoaded", () => {
         // Проверяем, не является ли ответ HTML страницей (Google Drive может вернуть HTML для больших файлов)
         const trimmedText = text.trim();
         if (trimmedText.startsWith('<!DOCTYPE') || trimmedText.startsWith('<html') || trimmedText.startsWith('<HTML')) {
-          console.error('Получен HTML вместо JSON. Возможные причины:');
+          console.error('Получен HTML вместо JSON. Google Drive показывает страницу подтверждения.');
+          console.error('Возможные причины:');
           console.error('1. Файл слишком большой и Google Drive требует подтверждения');
           console.error('2. Файл не публичный или ссылка неправильная');
-          console.error('3. Нужно использовать альтернативный формат ссылки');
+          console.error('3. Google Drive блокирует автоматическое скачивание больших файлов');
           console.error('Первые 500 символов ответа:', text.substring(0, 500));
-          throw new Error('Google Drive вернул HTML страницу вместо файла. Проверьте, что файл публичный и используйте правильный формат ссылки.');
+          throw new Error('Google Drive вернул HTML страницу вместо файла. Для больших файлов Google Drive требует ручного подтверждения. Рекомендуется использовать локальный файл или GitHub Pages.');
         }
         try {
           return JSON.parse(text);
