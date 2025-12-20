@@ -222,34 +222,27 @@ document.addEventListener("DOMContentLoaded", () => {
         const heatData = [];
         const maxPoints = 100000; // Можно больше для heatmap, так как он быстрее
         
-        // Проверяем, что карта имеет контейнер для элементов управления
+        // Проверяем, что карта имеет контейнер
         if (!map || !map.getContainer()) {
           console.error('Карта не готова для добавления элементов');
           return;
         }
         
-        // Показываем индикатор загрузки
-        const loadingDiv = L.control({ position: 'topcenter' });
-        loadingDiv.onAdd = () => {
-          const div = L.DomUtil.create('div', 'loading-message');
-          div.style.cssText = 'background: rgba(0, 0, 0, 0.7); color: white; padding: 10px; border-radius: 5px; font-size: 12px; text-align: center;';
-          div.innerHTML = '⏳ Обработка данных...';
-          return div;
-        };
-        
-        // Используем setTimeout для гарантии, что карта полностью готова
-        setTimeout(() => {
-          try {
-            if (map && map.getContainer()) {
-              loadingDiv.addTo(map);
-            } else {
-              console.warn('Карта не готова, пропускаем индикатор загрузки');
-            }
-          } catch (addError) {
-            console.error('Ошибка при добавлении индикатора загрузки:', addError);
-            // Продолжаем обработку даже если индикатор не добавился
+        // Показываем индикатор загрузки - добавляем напрямую в DOM карты
+        let loadingDiv = null;
+        try {
+          const mapContainer = map.getContainer();
+          if (mapContainer) {
+            loadingDiv = document.createElement('div');
+            loadingDiv.className = 'loading-message';
+            loadingDiv.style.cssText = 'position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 1000; background: rgba(0, 0, 0, 0.7); color: white; padding: 10px; border-radius: 5px; font-size: 12px; text-align: center; pointer-events: none;';
+            loadingDiv.innerHTML = '⏳ Обработка данных...';
+            mapContainer.appendChild(loadingDiv);
           }
-        }, 100);
+        } catch (addError) {
+          console.warn('Не удалось добавить индикатор загрузки:', addError);
+          // Продолжаем обработку даже если индикатор не добавился
+        }
       
         // Обрабатываем данные батчами для неблокирующей обработки
         let processedCount = 0;
@@ -293,8 +286,8 @@ document.addEventListener("DOMContentLoaded", () => {
             
             // Удаляем индикатор загрузки
             try {
-              if (map && map.hasControl && map.hasControl(loadingDiv)) {
-                map.removeControl(loadingDiv);
+              if (loadingDiv && loadingDiv.parentNode) {
+                loadingDiv.parentNode.removeChild(loadingDiv);
               }
             } catch (e) {
               // Игнорируем ошибку удаления
