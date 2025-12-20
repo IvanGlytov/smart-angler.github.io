@@ -182,12 +182,10 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!res.ok) {
           throw new Error(`HTTP error! status: ${res.status}`);
         }
-        // Проверяем Content-Type
-        const contentType = res.headers.get('content-type');
-        if (!contentType || !contentType.includes('application/json')) {
-          console.warn('Предупреждение: Content-Type не JSON, но продолжаем...');
-        }
         // Получаем текст и парсим вручную для лучшей обработки ошибок
+        // Примечание: не проверяем Content-Type, так как многие серверы хранения файлов
+        // (Yandex Cloud, Google Drive и др.) могут возвращать неправильный Content-Type
+        // для GeoJSON файлов. Вместо этого проверяем содержимое файла.
         return res.text().then(text => {
           // Проверяем, не является ли ответ HTML страницей (Google Drive может вернуть HTML для больших файлов)
           const trimmedText = text.trim();
