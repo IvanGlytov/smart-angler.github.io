@@ -17,8 +17,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // ВАЖНО: Google Drive блокирует CORS запросы. Используйте один из вариантов:
   // 1. CORS Proxy (временное решение) - раскомментируйте следующую строку:
   // const USE_CORS_PROXY = true;
-  // const CORS_PROXY_URL = 'https://corsproxy.io/?'; // или другой прокси
   const USE_CORS_PROXY = true; // Не требуется для GitHub Releases
+  const CORS_PROXY_URL = 'https://api.allorigins.win/raw?url='; // Альтернативный прокси, который обычно работает
   
   // 2. GitHub Releases (рекомендуется) - загрузите файл на GitHub Releases в ПУБЛИЧНОМ репозитории smart-angler.github.io
   // ВАЖНО: Репозиторий должен быть публичным, иначе будет ошибка 404!
@@ -79,7 +79,7 @@ document.addEventListener("DOMContentLoaded", () => {
     
     if (USE_CORS_PROXY) {
       // Используем CORS proxy для обхода ограничений Google Drive
-      const proxyUrl = 'https://corsproxy.io/?';
+      const proxyUrl = CORS_PROXY_URL || 'https://corsproxy.io/?';
       depthsFileUrl = proxyUrl + encodeURIComponent(directDriveUrl);
     } else {
       // Без прокси не будет работать из-за CORS
