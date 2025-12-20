@@ -23,7 +23,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // 2. GitHub Releases (рекомендуется) - загрузите файл на GitHub Releases в ПУБЛИЧНОМ репозитории smart-angler.github.io
   // ВАЖНО: Репозиторий должен быть публичным, иначе будет ошибка 404!
   // const GITHUB_RELEASES_URL = 'https://github.com/IvanGlytov/smart-angler.github.io/releases/download/v1.0/all_depths.geojson';
-  const GITHUB_RELEASES_URL = 'https://github.com/IvanGlytov/smart-angler.github.io/releases/download/v1.0/all_depths.geojson'; // Загрузите файл на Releases в репозитории smart-angler.github.io и вставьте ссылку
+  const GITHUB_RELEASES_URL = ''; // Загрузите файл на Releases в репозитории smart-angler.github.io и вставьте ссылку
   
   // 3. Прямой URL (если файл на GitHub Pages или другом хостинге без CORS ограничений)
   // После загрузки файла на GitHub Pages, используйте:
