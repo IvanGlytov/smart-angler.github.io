@@ -177,48 +177,55 @@ document.addEventListener("DOMContentLoaded", () => {
   
   // Ждем, пока карта полностью инициализируется перед загрузкой данных
   map.whenReady(() => {
-    fetch(depthsFileUrl)
-      .then(res => {
-        if (!res.ok) {
-          throw new Error(`HTTP error! status: ${res.status}`);
-        }
-        // Получаем текст и парсим вручную для лучшей обработки ошибок
+  fetch(depthsFileUrl)
+    .then(res => {
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
+      // Получаем текст и парсим вручную для лучшей обработки ошибок
         // Примечание: не проверяем Content-Type, так как многие серверы хранения файлов
         // (Yandex Cloud, Google Drive и др.) могут возвращать неправильный Content-Type
         // для GeoJSON файлов. Вместо этого проверяем содержимое файла.
-        return res.text().then(text => {
-          // Проверяем, не является ли ответ HTML страницей (Google Drive может вернуть HTML для больших файлов)
-          const trimmedText = text.trim();
-          if (trimmedText.startsWith('<!DOCTYPE') || trimmedText.startsWith('<html') || trimmedText.startsWith('<HTML')) {
+      return res.text().then(text => {
+        // Проверяем, не является ли ответ HTML страницей (Google Drive может вернуть HTML для больших файлов)
+        const trimmedText = text.trim();
+        if (trimmedText.startsWith('<!DOCTYPE') || trimmedText.startsWith('<html') || trimmedText.startsWith('<HTML')) {
             console.error('Получен HTML вместо JSON. Google Drive показывает страницу подтверждения.');
             console.error('Возможные причины:');
-            console.error('1. Файл слишком большой и Google Drive требует подтверждения');
-            console.error('2. Файл не публичный или ссылка неправильная');
+          console.error('1. Файл слишком большой и Google Drive требует подтверждения');
+          console.error('2. Файл не публичный или ссылка неправильная');
             console.error('3. Google Drive блокирует автоматическое скачивание больших файлов');
-            console.error('Первые 500 символов ответа:', text.substring(0, 500));
+          console.error('Первые 500 символов ответа:', text.substring(0, 500));
             throw new Error('Google Drive вернул HTML страницу вместо файла. Для больших файлов Google Drive требует ручного подтверждения. Рекомендуется использовать локальный файл или GitHub Pages.');
-          }
-          try {
-            return JSON.parse(text);
-          } catch (e) {
-            console.error('Ошибка парсинга JSON:', e);
-            console.error('Первые 500 символов ответа:', text.substring(0, 500));
-            throw new Error(`Ошибка парсинга JSON: ${e.message}`);
-          }
-        });
-      })
-      .then(data => {
-        console.log(`Загружено ${data.features.length} точек глубин`);
-        
+        }
+        try {
+          return JSON.parse(text);
+        } catch (e) {
+          console.error('Ошибка парсинга JSON:', e);
+          console.error('Первые 500 символов ответа:', text.substring(0, 500));
+          throw new Error(`Ошибка парсинга JSON: ${e.message}`);
+        }
+      });
+    })
+    .then(data => {
+      console.log(`Загружено ${data.features.length} точек глубин`);
+      
         // Проверяем, что карта инициализирована
         if (!map) {
           console.error('Карта не инициализирована');
           return;
         }
-        // Подготавливаем данные для heatmap
-        // Формат: [lat, lon, intensity] где intensity от 0 до 1
-        const heatData = [];
-        const maxPoints = 100000; // Можно больше для heatmap, так как он быстрее
+        // Проверяем наличие Turf.js
+        if (typeof turf === 'undefined') {
+          console.error('Turf.js не загружен! Добавьте <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>');
+          return;
+        }
+        
+        // Подготавливаем данные для создания изолиний
+        // Фильтруем и ограничиваем количество точек для производительности
+        const maxPoints = 50000; // Меньше точек для изолиний, так как они требуют больше вычислений
+        const filteredFeatures = [];
+        const sampleRate = Math.max(1, Math.floor(data.features.length / maxPoints));
         
         // Проверяем, что карта имеет контейнер
         if (!map || !map.getContainer()) {
@@ -234,37 +241,46 @@ document.addEventListener("DOMContentLoaded", () => {
             loadingDiv = document.createElement('div');
             loadingDiv.className = 'loading-message';
             loadingDiv.style.cssText = 'position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 1000; background: rgba(0, 0, 0, 0.7); color: white; padding: 10px; border-radius: 5px; font-size: 12px; text-align: center; pointer-events: none;';
-            loadingDiv.innerHTML = '⏳ Обработка данных...';
+            loadingDiv.innerHTML = '⏳ Обработка данных для изолиний...';
             mapContainer.appendChild(loadingDiv);
           }
         } catch (addError) {
           console.warn('Не удалось добавить индикатор загрузки:', addError);
-          // Продолжаем обработку даже если индикатор не добавился
         }
       
         // Обрабатываем данные батчами для неблокирующей обработки
         let processedCount = 0;
         const batchSize = 5000;
-        const totalFeatures = Math.min(data.features.length, maxPoints);
+        const totalFeatures = Math.min(data.features.length, maxPoints * sampleRate);
         
         function processBatch() {
           const end = Math.min(processedCount + batchSize, totalFeatures);
           
           for (let i = processedCount; i < end; i++) {
-            const feature = data.features[i];
-            const [lon, lat] = feature.geometry.coordinates;
-            const depth = feature.properties.depth;
+            // Применяем сэмплирование
+            if (i % sampleRate !== 0) continue;
             
+            const feature = data.features[i];
+        const [lon, lat] = feature.geometry.coordinates;
+        const depth = feature.properties.depth;
+
             if (typeof depth !== 'number' || isNaN(depth)) continue;
             if (typeof lat !== 'number' || typeof lon !== 'number') continue;
             
-            // Нормализуем глубину от 0 до 1 (0-15 метров)
-            // Инвертируем: мелко (0м) = высокая интенсивность, глубоко (15м+) = низкая
-            // Это создаст эффект, где красный = мелко, синий = глубоко
+            // Ограничиваем глубину до 15 метров и округляем
             const clampedDepth = Math.min(Math.max(depth, 0), 15);
-            const intensity = 1 - (clampedDepth / 15); // Инвертируем для heatmap
             
-            heatData.push([lat, lon, intensity]);
+            // Добавляем точку в формате для Turf.js
+            filteredFeatures.push({
+              type: 'Feature',
+              geometry: {
+                type: 'Point',
+                coordinates: [lon, lat]
+              },
+              properties: {
+                depth: clampedDepth
+              }
+            });
           }
           
           processedCount = end;
@@ -279,219 +295,454 @@ document.addEventListener("DOMContentLoaded", () => {
             // Используем requestAnimationFrame для неблокирующей обработки
             requestAnimationFrame(processBatch);
           } else {
-            // Все данные обработаны, создаем heatmap
-            console.log(`Обработано ${heatData.length} точек для heatmap`);
+            // Все данные обработаны, создаем изолинии
+            console.log(`Обработано ${filteredFeatures.length} точек для изолиний`);
             
-            // Удаляем индикатор загрузки
-            try {
-              if (loadingDiv && loadingDiv.parentNode) {
-                loadingDiv.parentNode.removeChild(loadingDiv);
-              }
-            } catch (e) {
-              // Игнорируем ошибку удаления
+            // Обновляем индикатор
+            if (loadingElement) {
+              loadingElement.innerHTML = '⏳ Создание изолиний...';
             }
             
-            // Проверяем, что карта инициализирована и имеет контейнер
-            if (!map || !map.getContainer()) {
-              console.error('Карта не инициализирована, невозможно добавить heatmap');
-              return;
-            }
-            
-            // Используем setTimeout для гарантии готовности карты
+            // Используем setTimeout для неблокирующей обработки
             setTimeout(() => {
               try {
-                // Создаем heatmap слой с градиентом, соответствующим глубинам
-                // Градиент: красный (мелко) → оранжевый → желтый → зеленый → голубой → синий (глубоко)
-                const heatLayer = L.heatLayer(heatData, {
-                  radius: 10,        // Радиус влияния каждой точки
-                  blur: 15,          // Размытие для плавности
-                  maxZoom: 18,        // Максимальный зум
-                  max: 1.0,           // Максимальная интенсивность
-                  minOpacity: 0.3,    // Минимальная прозрачность
-                  gradient: {
-                    0.0: 'blue',      // Глубоко (15м+) - синий
-                    0.2: '#0080CC',   // 12-15м - синий
-                    0.4: '#00FFCC',   // 9-12м - голубой
-                    0.5: '#80FF00',   // 7.5-9м - зеленый
-                    0.7: '#FFFF00',   // 3.75-7.5м - желтый
-                    0.85: '#FF8000',  // 1.5-3.75м - оранжевый
-                    1.0: 'red'        // Мелко (0-1.5м) - красный
+                // Создаем FeatureCollection для Turf.js
+                const points = turf.featureCollection(filteredFeatures);
+                
+                // Определяем границы области данных
+                const bbox = turf.bbox(points);
+                const cellSize = 0.001; // Размер ячейки сетки в градусах (~100м)
+                const units = 'kilometers';
+                
+                // Определяем уровни изолиний (изобаты) в метрах
+                const contourLevels = [0, 1, 2, 3, 4, 5, 6, 7.5, 9, 10, 12, 15];
+                
+                // Цвета для зон между изолиниями (от мелкого к глубокому)
+                const depthColors = {
+                  0: '#FF0000',      // 0-1м - красный (мелко)
+                  1: '#FF8000',      // 1-2м - оранжевый
+                  2: '#FFFF00',      // 2-3м - желтый
+                  3: '#CCFF00',      // 3-4м - желто-зеленый
+                  4: '#80FF00',      // 4-5м - зеленый
+                  5: '#40FF80',      // 5-6м - зелено-голубой
+                  6: '#00FFCC',      // 6-7.5м - голубой
+                  7.5: '#00CCFF',    // 7.5-9м - светло-синий
+                  9: '#0080FF',      // 9-10м - синий
+                  10: '#0066CC',     // 10-12м - темно-синий
+                  12: '#0040CC',     // 12-15м - очень темно-синий
+                  15: '#0000CC'      // 15м+ - самый темный синий
+                };
+                
+                // Создаем изобанды (цветовые зоны между изолиниями)
+                // Используем все уровни для создания изобанд
+                const breaks = [...contourLevels];
+                let isobands = [];
+                
+                try {
+                  const bands = turf.isobands(points, breaks, {
+                    zProperty: 'depth',
+                    cellSize: cellSize
+                  });
+                  
+                  // Добавляем цвета для каждой зоны
+                  bands.features.forEach((feature, index) => {
+                    if (index < breaks.length - 1) {
+                      const lower = breaks[index];
+                      const upper = breaks[index + 1];
+                      feature.properties.depthRange = `${lower}-${upper}м`;
+                      feature.properties.fill = depthColors[lower] || '#888';
+                      feature.properties.fillOpacity = 0.6;
+                      feature.properties.stroke = depthColors[lower] || '#333';
+                      feature.properties.strokeWidth = 0.5;
+                    }
+                  });
+                  
+                  isobands = bands.features;
+                } catch (e) {
+                  console.warn('Не удалось создать изобанды:', e);
+                  // Пробуем создать изобанды по одной
+                  for (let i = 0; i < contourLevels.length - 1; i++) {
+                    const lower = contourLevels[i];
+                    const upper = contourLevels[i + 1];
+                    
+                    try {
+                      const bands = turf.isobands(points, [lower, upper], {
+                        zProperty: 'depth',
+                        cellSize: cellSize
+                      });
+                      
+                      bands.features.forEach(feature => {
+                        feature.properties.depthRange = `${lower}-${upper}м`;
+                        feature.properties.fill = depthColors[lower];
+                        feature.properties.fillOpacity = 0.6;
+                        feature.properties.stroke = depthColors[lower];
+                        feature.properties.strokeWidth = 0.5;
+                      });
+                      
+                      isobands.push(...bands.features);
+                    } catch (e2) {
+                      console.warn(`Не удалось создать изобанду для ${lower}-${upper}м:`, e2);
+                    }
+                  }
+                }
+                
+                // Создаем изолинии (линии одинаковой глубины)
+                const contours = [];
+                contourLevels.forEach(level => {
+                  try {
+                    const contour = turf.contour(points, {
+                      zProperty: 'depth',
+                      levels: [level],
+                      cellSize: cellSize
+                    });
+                    
+                    contour.features.forEach(feature => {
+                      feature.properties.depth = level;
+                      feature.properties.stroke = '#333';
+                      feature.properties.strokeWidth = (level % 2.5 === 0 || level === 0) ? 2 : 1; // Более толстые линии для основных уровней
+                      feature.properties.strokeOpacity = 0.8;
+                      feature.properties.fill = 'none';
+                    });
+                    
+                    contours.push(...contour.features);
+                  } catch (e) {
+                    console.warn(`Не удалось создать изолинию для ${level}м:`, e);
                   }
                 });
                 
-                if (map && map.getContainer()) {
-                  heatLayer.addTo(map);
-                  console.log(`Heatmap создан с ${heatData.length} точками`);
-                  
-                  // Сохраняем ссылку на heatmap для возможного обновления
-                  window.depthsHeatmap = heatLayer;
-                  
-                  // Легенда глубин для heatmap (добавляем после создания heatmap)
-                  const legend = L.control({ position: 'bottomright' });
-                  legend.onAdd = () => {
-                    const div = L.DomUtil.create('div', 'legend');
-                    div.style.cssText = 'background: rgba(255, 255, 255, 0.95); padding: 12px; border-radius: 6px; font-size: 11px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); max-width: 200px;';
-                    
-                    // Создаем градиентную полосу для легенды (инвертированный для heatmap)
-                    // В heatmap: красный = мелко, синий = глубоко
-                    let gradientHtml = '<div style="font-weight: bold; margin-bottom: 8px; font-size: 12px;">Глубина (м):</div>';
-                    gradientHtml += '<div style="height: 20px; background: linear-gradient(to right, red, #FF8000, #FFFF00, #80FF00, #00FFCC, #0080CC, blue); border: 1px solid #333; border-radius: 3px; margin-bottom: 6px;"></div>';
-                    gradientHtml += '<div style="display: flex; justify-content: space-between; font-size: 10px; color: #666;">';
-                    gradientHtml += '<span>0 м (мелко)</span><span>7.5 м</span><span>15+ м (глубоко)</span>';
-                    gradientHtml += '</div>';
-                    
-                    // Добавляем примеры цветов для ключевых глубин
-                    gradientHtml += '<div style="margin-top: 8px; font-size: 10px;">';
-                    gradientHtml += '<div><span style="background:red; width:14px; height:10px; display:inline-block; margin-right:4px; border:1px solid #333; border-radius:2px;"></span> 0-2 м (мелко) 🔴</div>';
-                    gradientHtml += '<div><span style="background:#FFFF00; width:14px; height:10px; display:inline-block; margin-right:4px; border:1px solid #333; border-radius:2px;"></span> 5-7.5 м 🟡</div>';
-                    gradientHtml += '<div><span style="background:#00FFCC; width:14px; height:10px; display:inline-block; margin-right:4px; border:1px solid #333; border-radius:2px;"></span> 9-12 м 🔵</div>';
-                    gradientHtml += '<div><span style="background:blue; width:14px; height:10px; display:inline-block; margin-right:4px; border:1px solid #333; border-radius:2px;"></span> >15 м (глубоко) 🔷</div>';
-                    gradientHtml += '</div>';
-                    gradientHtml += '<div style="margin-top: 6px; font-size: 9px; color: #888; font-style: italic;">Тепловая карта глубин</div>';
-                    
-                    div.innerHTML = gradientHtml;
-                    return div;
-                  };
-                  
-                  if (map && map.getContainer()) {
-                    legend.addTo(map);
+                console.log(`Создано ${isobands.length} цветовых зон и ${contours.length} изолиний`);
+                
+                // Удаляем индикатор загрузки
+                try {
+                  if (loadingDiv && loadingDiv.parentNode) {
+                    loadingDiv.parentNode.removeChild(loadingDiv);
                   }
+                } catch (e) {
+                  // Игнорируем ошибку удаления
                 }
-              } catch (addError) {
-                console.error('Ошибка при добавлении heatmap или легенды:', addError);
+                
+                // Проверяем, что карта инициализирована и имеет контейнер
+                if (!map || !map.getContainer()) {
+                  console.error('Карта не инициализирована, невозможно добавить изолинии');
+                  return;
+                }
+                
+                // Используем setTimeout для гарантии готовности карты
+                setTimeout(() => {
+                  try {
+                    // Создаем группу слоев для изобанд (цветовые зоны)
+                    const isobandsLayer = L.geoJSON(turf.featureCollection(isobands), {
+                      style: (feature) => ({
+                        fillColor: feature.properties.fill || '#888',
+                        fillOpacity: feature.properties.fillOpacity || 0.6,
+                        color: feature.properties.stroke || '#333',
+                        weight: feature.properties.strokeWidth || 0.5,
+                        opacity: feature.properties.strokeOpacity || 0.5
+                      }),
+                      onEachFeature: (feature, layer) => {
+                        const depthRange = feature.properties.depthRange || 'неизвестно';
+                        layer.bindTooltip(`${depthRange}`, { permanent: false, direction: 'center' });
+                      }
+                    });
+                    
+                    // Создаем группу слоев для изолиний (линии)
+                    const contoursLayer = L.geoJSON(turf.featureCollection(contours), {
+                      style: (feature) => ({
+                        color: feature.properties.stroke || '#333',
+                        weight: feature.properties.strokeWidth || 1,
+                        opacity: feature.properties.strokeOpacity || 0.8,
+                        fill: false
+                      }),
+                      onEachFeature: (feature, layer) => {
+                        const depth = feature.properties.depth || 'неизвестно';
+                        layer.bindTooltip(`${depth} м`, { permanent: false, direction: 'center' });
+                      }
+                    });
+                    
+                    if (map && map.getContainer()) {
+                      // Добавляем сначала цветовые зоны, затем изолинии поверх
+                      isobandsLayer.addTo(map);
+                      contoursLayer.addTo(map);
+                      
+                      console.log(`Изолинии созданы: ${isobands.length} зон, ${contours.length} линий`);
+                      
+                      // Сохраняем ссылки на слои
+                      window.depthsIsobands = isobandsLayer;
+                      window.depthsContours = contoursLayer;
+                      
+                      // Легенда глубин для изолиний
+      const legend = L.control({ position: 'bottomright' });
+      legend.onAdd = () => {
+        const div = L.DomUtil.create('div', 'legend');
+        div.style.cssText = 'background: rgba(255, 255, 255, 0.95); padding: 12px; border-radius: 6px; font-size: 11px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); max-width: 200px;';
+        
+                        let legendHtml = '<div style="font-weight: bold; margin-bottom: 8px; font-size: 12px;">Глубина (м):</div>';
+                        
+                        // Добавляем примеры цветов для зон глубин
+                        const depthRanges = [
+                          { range: '0-1 м', color: '#FF0000', label: '0-1 м (мелко) 🔴' },
+                          { range: '1-2 м', color: '#FF8000', label: '1-2 м 🟠' },
+                          { range: '2-3 м', color: '#FFFF00', label: '2-3 м 🟡' },
+                          { range: '3-4 м', color: '#CCFF00', label: '3-4 м 🟢' },
+                          { range: '4-5 м', color: '#80FF00', label: '4-5 м 🟢' },
+                          { range: '5-6 м', color: '#40FF80', label: '5-6 м 🔵' },
+                          { range: '6-7.5 м', color: '#00FFCC', label: '6-7.5 м 🔵' },
+                          { range: '7.5-9 м', color: '#00CCFF', label: '7.5-9 м 🔵' },
+                          { range: '9-10 м', color: '#0080FF', label: '9-10 м 🔵' },
+                          { range: '10-12 м', color: '#0066CC', label: '10-12 м 🔵' },
+                          { range: '12-15 м', color: '#0040CC', label: '12-15 м 🔵' },
+                          { range: '15+ м', color: '#0000CC', label: '15+ м (глубоко) 🔷' }
+                        ];
+                        
+                        legendHtml += '<div style="max-height: 200px; overflow-y: auto; margin-top: 4px;">';
+                        depthRanges.forEach(({ range, color, label }) => {
+                          legendHtml += `<div style="margin: 2px 0; font-size: 10px;">`;
+                          legendHtml += `<span style="background:${color}; width:16px; height:12px; display:inline-block; margin-right:6px; border:1px solid #333; border-radius:2px; vertical-align:middle;"></span>`;
+                          legendHtml += `<span style="vertical-align:middle;">${label}</span>`;
+                          legendHtml += `</div>`;
+                        });
+                        legendHtml += '</div>';
+                        
+                        legendHtml += '<div style="margin-top: 8px; font-size: 9px; color: #888; font-style: italic; border-top: 1px solid #ddd; padding-top: 6px;">Изолинии (изобаты) глубин</div>';
+                        
+                        div.innerHTML = legendHtml;
+        return div;
+      };
+                      
+                      if (map && map.getContainer()) {
+      legend.addTo(map);
+                      }
+                    }
+                  } catch (addError) {
+                    console.error('Ошибка при добавлении изолиний или легенды:', addError);
+                  }
+                }, 50);
+              } catch (processingError) {
+                console.error('Ошибка при создании изолиний:', processingError);
+                // Удаляем индикатор загрузки при ошибке
+                try {
+                  if (loadingDiv && loadingDiv.parentNode) {
+                    loadingDiv.parentNode.removeChild(loadingDiv);
+                  }
+                } catch (e) {
+                  // Игнорируем ошибку удаления
+                }
               }
-            }, 50);
+            }, 100);
           }
         }
         
         // Начинаем обработку
         processBatch();
-      })
-      .catch(err => {
-        console.error('Ошибка загрузки глубин:', err);
-        console.error('Детали ошибки:', err.message, err.stack);
-        
+    })
+    .catch(err => {
+      console.error('Ошибка загрузки глубин:', err);
+      console.error('Детали ошибки:', err.message, err.stack);
+      
         // Проверяем, что карта инициализирована перед добавлением элементов
         if (!map || !map.getContainer()) {
           console.error('Карта не инициализирована, невозможно показать ошибку');
           return;
         }
-        
-        // Показываем пользователю сообщение об ошибке
-        const errorDiv = L.control({ position: 'topcenter' });
-        errorDiv.onAdd = () => {
-          const div = L.DomUtil.create('div', 'error-message');
-          div.style.cssText = 'background: rgba(255, 0, 0, 0.8); color: white; padding: 10px; border-radius: 5px; font-size: 12px; text-align: center;';
-          div.innerHTML = `⚠️ Ошибка загрузки данных глубин: ${err.message}`;
-          return div;
-        };
-        
-        // Добавляем только если карта готова, используя setTimeout
+      
+        // Показываем пользователю сообщение об ошибке - добавляем напрямую в DOM
         setTimeout(() => {
           try {
             if (map && map.getContainer()) {
-              errorDiv.addTo(map);
+              const mapContainer = map.getContainer();
+              const errorDiv = document.createElement('div');
+              errorDiv.className = 'error-message';
+              errorDiv.style.cssText = 'position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 1000; background: rgba(255, 0, 0, 0.8); color: white; padding: 10px; border-radius: 5px; font-size: 12px; text-align: center; pointer-events: none;';
+              errorDiv.innerHTML = `⚠️ Ошибка загрузки данных глубин: ${err.message}`;
+              mapContainer.appendChild(errorDiv);
+              
+              // Удаляем сообщение через 10 секунд
+              setTimeout(() => {
+                if (errorDiv.parentNode) {
+                  errorDiv.parentNode.removeChild(errorDiv);
+                }
+              }, 10000);
             }
           } catch (addError) {
             console.error('Ошибка при добавлении сообщения об ошибке на карту:', addError);
           }
         }, 100);
-        
-        // Пробуем загрузить резервный файл
-        console.log('Попытка загрузить резервный файл desna_depths.geojson...');
-        fetch('desna_depths.geojson?v=1')
-          .then(res => {
-            if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-            return res.text().then(text => JSON.parse(text));
-          })
-          .then(data => {
-            console.log(`Загружен резервный файл: ${data.features.length} точек`);
+      
+      // Пробуем загрузить резервный файл
+      console.log('Попытка загрузить резервный файл desna_depths.geojson...');
+      fetch('desna_depths.geojson?v=1')
+        .then(res => {
+          if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+          return res.text().then(text => JSON.parse(text));
+        })
+        .then(data => {
+          console.log(`Загружен резервный файл: ${data.features.length} точек`);
             
-            // Подготавливаем данные для heatmap
-            const heatData = [];
-            const maxPoints = 100000;
+            // Используем ту же логику создания изолиний, что и для основного файла
+            if (typeof turf === 'undefined') {
+              console.error('Turf.js не загружен для резервного файла');
+              return;
+            }
             
-            data.features.slice(0, maxPoints).forEach((feature) => {
-              const [lon, lat] = feature.geometry.coordinates;
-              const depth = feature.properties.depth;
-              
-              if (typeof depth !== 'number' || isNaN(depth)) return;
-              if (typeof lat !== 'number' || typeof lon !== 'number') return;
-              
+            // Фильтруем данные
+          const maxPoints = 50000;
+            const filteredFeatures = [];
+            const sampleRate = Math.max(1, Math.floor(data.features.length / maxPoints));
+          
+            data.features.forEach((feature, i) => {
+              if (i % sampleRate !== 0) return;
+            
+            const [lon, lat] = feature.geometry.coordinates;
+            const depth = feature.properties.depth;
+
+            if (typeof depth !== 'number' || isNaN(depth)) return;
+            if (typeof lat !== 'number' || typeof lon !== 'number') return;
+
               const clampedDepth = Math.min(Math.max(depth, 0), 15);
-              const intensity = 1 - (clampedDepth / 15);
               
-              heatData.push([lat, lon, intensity]);
-            });
-            
-            // Создаем heatmap из резервного файла
-            const heatLayer = L.heatLayer(heatData, {
-              radius: 10,
-              blur: 15,
-              maxZoom: 18,
-              max: 1.0,
-              minOpacity: 0.3,
-              gradient: {
-                0.0: 'blue',
-                0.2: '#0080CC',
-                0.4: '#00FFCC',
-                0.5: '#80FF00',
-                0.7: '#FFFF00',
-                0.85: '#FF8000',
-                1.0: 'red'
-              }
+              filteredFeatures.push({
+                type: 'Feature',
+                geometry: {
+                  type: 'Point',
+                  coordinates: [lon, lat]
+                },
+                properties: {
+                  depth: clampedDepth
+                }
+              });
             });
             
             if (!map || !map.getContainer()) {
-              console.error('Карта не инициализирована, невозможно добавить heatmap');
+              console.error('Карта не инициализирована, невозможно добавить изолинии');
               return;
             }
             
             // Используем setTimeout для гарантии готовности карты
             setTimeout(() => {
               try {
-                if (map && map.getContainer()) {
-                  heatLayer.addTo(map);
-                  window.depthsHeatmap = heatLayer;
-                  console.log(`Отображено ${heatData.length} точек из резервного файла в heatmap`);
+                const points = turf.featureCollection(filteredFeatures);
+                const cellSize = 0.001;
+                const contourLevels = [0, 1, 2, 3, 4, 5, 6, 7.5, 9, 10, 12, 15];
+                
+                const depthColors = {
+                  0: '#FF0000', 1: '#FF8000', 2: '#FFFF00', 3: '#CCFF00', 4: '#80FF00',
+                  5: '#40FF80', 6: '#00FFCC', 7.5: '#00CCFF', 9: '#0080FF',
+                  10: '#0066CC', 12: '#0040CC', 15: '#0000CC'
+                };
+                
+                // Создаем изобанды
+                const breaks = [...contourLevels];
+                let isobands = [];
+                
+                try {
+                  const bands = turf.isobands(points, breaks, {
+                    zProperty: 'depth',
+                    cellSize: cellSize
+                  });
                   
-                  // Добавляем легенду для резервного файла
-                  const legend = L.control({ position: 'bottomright' });
-                  legend.onAdd = () => {
-                    const div = L.DomUtil.create('div', 'legend');
-                    div.style.cssText = 'background: rgba(255, 255, 255, 0.95); padding: 12px; border-radius: 6px; font-size: 11px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); max-width: 200px;';
-                    
-                    let gradientHtml = '<div style="font-weight: bold; margin-bottom: 8px; font-size: 12px;">Глубина (м):</div>';
-                    gradientHtml += '<div style="height: 20px; background: linear-gradient(to right, red, #FF8000, #FFFF00, #80FF00, #00FFCC, #0080CC, blue); border: 1px solid #333; border-radius: 3px; margin-bottom: 6px;"></div>';
-                    gradientHtml += '<div style="display: flex; justify-content: space-between; font-size: 10px; color: #666;">';
-                    gradientHtml += '<span>0 м (мелко)</span><span>7.5 м</span><span>15+ м (глубоко)</span>';
-                    gradientHtml += '</div>';
-                    gradientHtml += '<div style="margin-top: 8px; font-size: 10px;">';
-                    gradientHtml += '<div><span style="background:red; width:14px; height:10px; display:inline-block; margin-right:4px; border:1px solid #333; border-radius:2px;"></span> 0-2 м (мелко) 🔴</div>';
-                    gradientHtml += '<div><span style="background:#FFFF00; width:14px; height:10px; display:inline-block; margin-right:4px; border:1px solid #333; border-radius:2px;"></span> 5-7.5 м 🟡</div>';
-                    gradientHtml += '<div><span style="background:#00FFCC; width:14px; height:10px; display:inline-block; margin-right:4px; border:1px solid #333; border-radius:2px;"></span> 9-12 м 🔵</div>';
-                    gradientHtml += '<div><span style="background:blue; width:14px; height:10px; display:inline-block; margin-right:4px; border:1px solid #333; border-radius:2px;"></span> >15 м (глубоко) 🔷</div>';
-                    gradientHtml += '</div>';
-                    gradientHtml += '<div style="margin-top: 6px; font-size: 9px; color: #888; font-style: italic;">Тепловая карта глубин</div>';
-                    
-                    div.innerHTML = gradientHtml;
-                    return div;
-                  };
+                  bands.features.forEach((feature, index) => {
+                    if (index < breaks.length - 1) {
+                      const lower = breaks[index];
+                      const upper = breaks[index + 1];
+                      feature.properties.depthRange = `${lower}-${upper}м`;
+                      feature.properties.fill = depthColors[lower] || '#888';
+                      feature.properties.fillOpacity = 0.6;
+                      feature.properties.stroke = depthColors[lower] || '#333';
+                      feature.properties.strokeWidth = 0.5;
+                    }
+                  });
                   
-                  if (map && map.getContainer()) {
-                    legend.addTo(map);
+                  isobands = bands.features;
+                } catch (e) {
+                  console.warn('Не удалось создать изобанды для резервного файла:', e);
+                  // Пробуем создать по одной
+                  for (let i = 0; i < contourLevels.length - 1; i++) {
+                    const lower = contourLevels[i];
+                    const upper = contourLevels[i + 1];
+                    
+                    try {
+                      const bands = turf.isobands(points, [lower, upper], {
+                        zProperty: 'depth',
+                        cellSize: cellSize
+                      });
+                      
+                      bands.features.forEach(feature => {
+                        feature.properties.depthRange = `${lower}-${upper}м`;
+                        feature.properties.fill = depthColors[lower];
+                        feature.properties.fillOpacity = 0.6;
+                        feature.properties.stroke = depthColors[lower];
+                        feature.properties.strokeWidth = 0.5;
+                      });
+                      
+                      isobands.push(...bands.features);
+                    } catch (e2) {
+                      // Игнорируем ошибки отдельных зон
+                    }
                   }
                 }
+                
+                // Создаем изолинии
+                const contours = [];
+                contourLevels.forEach(level => {
+                  try {
+                    const contour = turf.contour(points, {
+                      zProperty: 'depth',
+                      levels: [level],
+                      cellSize: cellSize
+                    });
+                    
+                    contour.features.forEach(feature => {
+                      feature.properties.depth = level;
+                      feature.properties.stroke = '#333';
+                      feature.properties.strokeWidth = (level % 2.5 === 0 || level === 0) ? 2 : 1;
+                      feature.properties.strokeOpacity = 0.8;
+                      feature.properties.fill = 'none';
+                    });
+                    
+                    contours.push(...contour.features);
+                  } catch (e) {
+                    console.warn(`Не удалось создать изолинию для ${level}м:`, e);
+                  }
+                });
+                
+                if (map && map.getContainer()) {
+                  const isobandsLayer = L.geoJSON(turf.featureCollection(isobands), {
+                    style: (feature) => ({
+                      fillColor: feature.properties.fill || '#888',
+                      fillOpacity: feature.properties.fillOpacity || 0.6,
+                      color: feature.properties.stroke || '#333',
+                      weight: feature.properties.strokeWidth || 0.5,
+                      opacity: feature.properties.strokeOpacity || 0.5
+                    })
+                  });
+                  
+                  const contoursLayer = L.geoJSON(turf.featureCollection(contours), {
+                    style: (feature) => ({
+                      color: feature.properties.stroke || '#333',
+                      weight: feature.properties.strokeWidth || 1,
+                      opacity: feature.properties.strokeOpacity || 0.8,
+                      fill: false
+                    })
+                  });
+                  
+                  isobandsLayer.addTo(map);
+                  contoursLayer.addTo(map);
+                  
+                  window.depthsIsobands = isobandsLayer;
+                  window.depthsContours = contoursLayer;
+                  
+                  console.log(`Отображено ${filteredFeatures.length} точек из резервного файла в изолиниях`);
+                }
               } catch (addError) {
-                console.error('Ошибка при добавлении heatmap или легенды:', addError);
+                console.error('Ошибка при добавлении изолиний из резервного файла:', addError);
               }
             }, 50);
-          })
-          .catch(fallbackErr => {
-            console.error('Ошибка загрузки резервного файла:', fallbackErr);
+        })
+        .catch(fallbackErr => {
+          console.error('Ошибка загрузки резервного файла:', fallbackErr);
           });
-      });
-  });
+        });
+    });
 
   // Поиск по адресу
   const searchControl = L.control({ position: 'topleft' });
