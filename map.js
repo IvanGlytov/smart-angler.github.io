@@ -23,7 +23,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const DIRECT_FILE_URL = 'https://storage.yandexcloud.net/depths-map/all_depths_small.geojson'
   
   // Локальный файл (резервный вариант, если Yandex Cloud недоступен)
-  const LOCAL_FILE_URL = 'all_depths.geojson';
+  const LOCAL_FILE_URL = 'all_depths_small.geojson';
   
   // Определяем, какой источник использовать (приоритет: GitHub Releases > Direct URL > Google Drive > Local)
   const USE_LOCAL_FILE = !GITHUB_RELEASES_URL && !DIRECT_FILE_URL && !GOOGLE_DRIVE_FILE_ID && !GOOGLE_DRIVE_DIRECT_URL;
