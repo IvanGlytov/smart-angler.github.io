@@ -22,8 +22,17 @@ document.addEventListener("DOMContentLoaded", () => {
   // const DIRECT_FILE_URL = 'https://storage.yandexcloud.net/depths-map/all_depths.geojson';
   const DIRECT_FILE_URL = 'https://storage.yandexcloud.net/depths-map/all_depths_small.geojson'
   
-  // Локальный файл (резервный вариант, если Yandex Cloud недоступен)
+  // URL файла с готовыми изолиниями и цветовыми зонами
+  // Создается один раз скриптом generate_contours.py
+  const CONTOURS_FILE_URL = 'https://storage.yandexcloud.net/depths-map/all_depths_small_contours.geojson';
+  // Локальный файл с изолиниями (резервный вариант)
+  const LOCAL_CONTOURS_FILE_URL = 'all_depths_small_contours.geojson';
+  
+  // Локальный файл с точками (резервный вариант, если Yandex Cloud недоступен)
   const LOCAL_FILE_URL = 'all_depths_small.geojson';
+  
+  // Использовать готовые изолинии (рекомендуется) или создавать на лету
+  const USE_PRECOMPUTED_CONTOURS = true;
   
   // Определяем, какой источник использовать (приоритет: GitHub Releases > Direct URL > Google Drive > Local)
   const USE_LOCAL_FILE = !GITHUB_RELEASES_URL && !DIRECT_FILE_URL && !GOOGLE_DRIVE_FILE_ID && !GOOGLE_DRIVE_DIRECT_URL;
@@ -172,12 +181,26 @@ document.addEventListener("DOMContentLoaded", () => {
     return interpolateColor(color1, color2, segmentFactor);
   }
 
-  // Загрузка данных глубин
-  console.log('Загрузка файла глубин с URL:', depthsFileUrl);
+  // Определяем URL для загрузки изолиний
+  let contoursFileUrl = '';
+  if (USE_PRECOMPUTED_CONTOURS) {
+    // Используем готовые изолинии
+    if (CONTOURS_FILE_URL) {
+      contoursFileUrl = CONTOURS_FILE_URL;
+    } else if (LOCAL_CONTOURS_FILE_URL) {
+      contoursFileUrl = LOCAL_CONTOURS_FILE_URL;
+    }
+  }
+  
+  // Загрузка данных глубин (изолинии или точки)
+  const fileUrlToLoad = USE_PRECOMPUTED_CONTOURS && contoursFileUrl ? contoursFileUrl : depthsFileUrl;
+  console.log(USE_PRECOMPUTED_CONTOURS && contoursFileUrl 
+    ? `Загрузка готовых изолиний с URL: ${contoursFileUrl}`
+    : `Загрузка файла глубин с URL: ${depthsFileUrl}`);
   
   // Ждем, пока карта полностью инициализируется перед загрузкой данных
   map.whenReady(() => {
-  fetch(depthsFileUrl)
+  fetch(fileUrlToLoad)
     .then(res => {
       if (!res.ok) {
         throw new Error(`HTTP error! status: ${res.status}`);
@@ -208,14 +231,162 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     })
     .then(data => {
+      console.log(`Загружено ${data.features.length} элементов`);
+      
+      // Проверяем, что карта инициализирована
+      if (!map) {
+        console.error('Карта не инициализирована');
+        return;
+      }
+      
+      // Если загружены готовые изолинии, просто отображаем их
+      if (USE_PRECOMPUTED_CONTOURS && contoursFileUrl) {
+        console.log('Используются готовые изолинии из файла');
+        
+        // Показываем индикатор загрузки
+        let loadingDiv = null;
+        try {
+          const mapContainer = map.getContainer();
+          if (mapContainer) {
+            loadingDiv = document.createElement('div');
+            loadingDiv.className = 'loading-message';
+            loadingDiv.style.cssText = 'position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 1000; background: rgba(0, 0, 0, 0.7); color: white; padding: 10px; border-radius: 5px; font-size: 12px; text-align: center; pointer-events: none;';
+            loadingDiv.innerHTML = '⏳ Загрузка изолиний...';
+            mapContainer.appendChild(loadingDiv);
+          }
+        } catch (addError) {
+          console.warn('Не удалось добавить индикатор загрузки:', addError);
+        }
+        
+        // Разделяем изобанды и изолинии
+        const isobands = [];
+        const contours = [];
+        
+        data.features.forEach(feature => {
+          if (feature.geometry.type === 'Polygon') {
+            isobands.push(feature);
+          } else if (feature.geometry.type === 'LineString') {
+            contours.push(feature);
+          }
+        });
+        
+        console.log(`Найдено ${isobands.length} цветовых зон и ${contours.length} изолиний`);
+        
+        // Удаляем индикатор загрузки
+        try {
+          if (loadingDiv && loadingDiv.parentNode) {
+            loadingDiv.parentNode.removeChild(loadingDiv);
+          }
+        } catch (e) {
+          // Игнорируем ошибку удаления
+        }
+        
+        // Отображаем изолинии на карте
+        setTimeout(() => {
+          try {
+            // Создаем группу слоев для изобанд (цветовые зоны)
+            const isobandsCollection = {
+              type: 'FeatureCollection',
+              features: isobands
+            };
+            const isobandsLayer = L.geoJSON(isobandsCollection, {
+              style: (feature) => ({
+                fillColor: feature.properties.fill || '#888',
+                fillOpacity: feature.properties.fillOpacity || 0.6,
+                color: feature.properties.stroke || '#333',
+                weight: feature.properties.strokeWidth || 0.5,
+                opacity: feature.properties.strokeOpacity || 0.5
+              }),
+              onEachFeature: (feature, layer) => {
+                const depthRange = feature.properties.depthRange || 'неизвестно';
+                layer.bindTooltip(`${depthRange}`, { permanent: false, direction: 'center' });
+              }
+            });
+            
+            // Создаем группу слоев для изолиний (линии)
+            const contoursCollection = {
+              type: 'FeatureCollection',
+              features: contours
+            };
+            const contoursLayer = L.geoJSON(contoursCollection, {
+              style: (feature) => ({
+                color: feature.properties.stroke || '#333',
+                weight: feature.properties.strokeWidth || 1,
+                opacity: feature.properties.strokeOpacity || 0.8,
+                fill: false
+              }),
+              onEachFeature: (feature, layer) => {
+                const depth = feature.properties.depth || 'неизвестно';
+                layer.bindTooltip(`${depth} м`, { permanent: false, direction: 'center' });
+              }
+            });
+            
+            if (map && map.getContainer()) {
+              // Добавляем сначала цветовые зоны, затем изолинии поверх
+              isobandsLayer.addTo(map);
+              contoursLayer.addTo(map);
+              
+              console.log(`Изолинии отображены: ${isobands.length} зон, ${contours.length} линий`);
+              
+              // Сохраняем ссылки на слои
+              window.depthsIsobands = isobandsLayer;
+              window.depthsContours = contoursLayer;
+              
+              // Легенда глубин для изолиний
+              const legend = L.control({ position: 'bottomright' });
+              legend.onAdd = () => {
+                const div = L.DomUtil.create('div', 'legend');
+                div.style.cssText = 'background: rgba(255, 255, 255, 0.95); padding: 12px; border-radius: 6px; font-size: 11px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); max-width: 200px;';
+                
+                let legendHtml = '<div style="font-weight: bold; margin-bottom: 8px; font-size: 12px;">Глубина (м):</div>';
+                
+                // Добавляем примеры цветов для зон глубин
+                const depthRanges = [
+                  { range: '0-1 м', color: '#FF0000', label: '0-1 м (мелко) 🔴' },
+                  { range: '1-2 м', color: '#FF8000', label: '1-2 м 🟠' },
+                  { range: '2-3 м', color: '#FFFF00', label: '2-3 м 🟡' },
+                  { range: '3-4 м', color: '#CCFF00', label: '3-4 м 🟢' },
+                  { range: '4-5 м', color: '#80FF00', label: '4-5 м 🟢' },
+                  { range: '5-6 м', color: '#40FF80', label: '5-6 м 🔵' },
+                  { range: '6-7.5 м', color: '#00FFCC', label: '6-7.5 м 🔵' },
+                  { range: '7.5-9 м', color: '#00CCFF', label: '7.5-9 м 🔵' },
+                  { range: '9-10 м', color: '#0080FF', label: '9-10 м 🔵' },
+                  { range: '10-12 м', color: '#0066CC', label: '10-12 м 🔵' },
+                  { range: '12-15 м', color: '#0040CC', label: '12-15 м 🔵' },
+                  { range: '15+ м', color: '#0000CC', label: '15+ м (глубоко) 🔷' }
+                ];
+                
+                legendHtml += '<div style="max-height: 200px; overflow-y: auto; margin-top: 4px;">';
+                depthRanges.forEach(({ range, color, label }) => {
+                  legendHtml += `<div style="margin: 2px 0; font-size: 10px;">`;
+                  legendHtml += `<span style="background:${color}; width:16px; height:12px; display:inline-block; margin-right:6px; border:1px solid #333; border-radius:2px; vertical-align:middle;"></span>`;
+                  legendHtml += `<span style="vertical-align:middle;">${label}</span>`;
+                  legendHtml += `</div>`;
+                });
+                legendHtml += '</div>';
+                
+                legendHtml += '<div style="margin-top: 8px; font-size: 9px; color: #888; font-style: italic; border-top: 1px solid #ddd; padding-top: 6px;">Изолинии (изобаты) глубин</div>';
+                
+                div.innerHTML = legendHtml;
+                return div;
+              };
+              
+              if (map && map.getContainer()) {
+                legend.addTo(map);
+              }
+            }
+          } catch (addError) {
+            console.error('Ошибка при добавлении изолиний:', addError);
+          }
+        }, 50);
+        
+        return; // Выходим, так как изолинии уже загружены
+      }
+      
+      // Если не используются готовые изолинии, создаем их на лету (старый код)
       console.log(`Загружено ${data.features.length} точек глубин`);
       
-        // Проверяем, что карта инициализирована
-        if (!map) {
-          console.error('Карта не инициализирована');
-          return;
-        }
-        // Подготавливаем данные для создания изолиний
+      // Подготавливаем данные для создания изолиний
         // Фильтруем и ограничиваем количество точек для производительности
         const maxPoints = 50000; // Меньше точек для изолиний, так как они требуют больше вычислений
         const filteredFeatures = [];
