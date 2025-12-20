@@ -201,67 +201,121 @@ document.addEventListener("DOMContentLoaded", () => {
     .then(data => {
       console.log(`Загружено ${data.features.length} точек глубин`);
       
-      let pointCount = 0;
-      const maxPoints = 50000; // Ограничение для производительности
+      // Подготавливаем данные для heatmap
+      // Формат: [lat, lon, intensity] где intensity от 0 до 1
+      const heatData = [];
+      const maxPoints = 100000; // Можно больше для heatmap, так как он быстрее
       
-      // Отображаем каждую точку как кружок
-      data.features.forEach((feature, index) => {
-        // Ограничиваем количество точек для производительности
-        if (pointCount >= maxPoints) return;
-        
-        const [lon, lat] = feature.geometry.coordinates;
-        const depth = feature.properties.depth;
-
-        if (typeof depth !== 'number' || isNaN(depth)) return;
-        if (typeof lat !== 'number' || typeof lon !== 'number') return;
-
-        const color = getDepthColor(depth);
-        
-        // Создаем кружок для каждой точки
-        L.circleMarker([lat, lon], {
-          radius: 3, // Размер кружка
-          fillColor: color,
-          fillOpacity: 0.7,
-          color: color,
-          weight: 1,
-          opacity: 0.8
-        })
-        .bindTooltip(`${depth.toFixed(1)} м`, {
-          permanent: false,
-          direction: 'auto'
-        })
-        .addTo(map);
-        
-        pointCount++;
-      });
-      
-      console.log(`Отображено ${pointCount} точек`);
-
-      // Легенда глубин с 30 градациями
-      const legend = L.control({ position: 'bottomright' });
-      legend.onAdd = () => {
-        const div = L.DomUtil.create('div', 'legend');
-        div.style.cssText = 'background: rgba(255, 255, 255, 0.95); padding: 12px; border-radius: 6px; font-size: 11px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); max-width: 200px;';
-        
-        // Создаем градиентную полосу для легенды
-        let gradientHtml = '<div style="font-weight: bold; margin-bottom: 8px; font-size: 12px;">Глубина (м):</div>';
-        gradientHtml += '<div style="height: 20px; background: linear-gradient(to right, #FF0000, #FF8000, #FFFF00, #80FF00, #00FFCC, #0080CC, #0000CC); border: 1px solid #333; border-radius: 3px; margin-bottom: 6px;"></div>';
-        gradientHtml += '<div style="display: flex; justify-content: space-between; font-size: 10px; color: #666;">';
-        gradientHtml += '<span>0 м</span><span>7.5 м</span><span>15+ м</span>';
-        gradientHtml += '</div>';
-        
-        // Добавляем примеры цветов для ключевых глубин
-        gradientHtml += '<div style="margin-top: 8px; font-size: 10px;">';
-        gradientHtml += '<div><span style="background:#FF0000; width:14px; height:10px; display:inline-block; margin-right:4px; border:1px solid #333; border-radius:2px;"></span> 0-0.5 м (мелко)</div>';
-        gradientHtml += '<div><span style="background:#FFFF00; width:14px; height:10px; display:inline-block; margin-right:4px; border:1px solid #333; border-radius:2px;"></span> 5-7.5 м</div>';
-        gradientHtml += '<div><span style="background:#0080CC; width:14px; height:10px; display:inline-block; margin-right:4px; border:1px solid #333; border-radius:2px;"></span> 12-15 м</div>';
-        gradientHtml += '<div><span style="background:#0000CC; width:14px; height:10px; display:inline-block; margin-right:4px; border:1px solid #333; border-radius:2px;"></span> >15 м (глубоко)</div>';
-        gradientHtml += '</div>';
-        
-        div.innerHTML = gradientHtml;
+      // Показываем индикатор загрузки
+      const loadingDiv = L.control({ position: 'topcenter' });
+      loadingDiv.onAdd = () => {
+        const div = L.DomUtil.create('div', 'loading-message');
+        div.style.cssText = 'background: rgba(0, 0, 0, 0.7); color: white; padding: 10px; border-radius: 5px; font-size: 12px; text-align: center;';
+        div.innerHTML = '⏳ Обработка данных...';
         return div;
       };
-      legend.addTo(map);
+      loadingDiv.addTo(map);
+      
+      // Обрабатываем данные батчами для неблокирующей обработки
+      let processedCount = 0;
+      const batchSize = 5000;
+      const totalFeatures = Math.min(data.features.length, maxPoints);
+      
+      function processBatch() {
+        const end = Math.min(processedCount + batchSize, totalFeatures);
+        
+        for (let i = processedCount; i < end; i++) {
+          const feature = data.features[i];
+          const [lon, lat] = feature.geometry.coordinates;
+          const depth = feature.properties.depth;
+          
+          if (typeof depth !== 'number' || isNaN(depth)) continue;
+          if (typeof lat !== 'number' || typeof lon !== 'number') continue;
+          
+          // Нормализуем глубину от 0 до 1 (0-15 метров)
+          // Инвертируем: мелко (0м) = высокая интенсивность, глубоко (15м+) = низкая
+          // Это создаст эффект, где красный = мелко, синий = глубоко
+          const clampedDepth = Math.min(Math.max(depth, 0), 15);
+          const intensity = 1 - (clampedDepth / 15); // Инвертируем для heatmap
+          
+          heatData.push([lat, lon, intensity]);
+        }
+        
+        processedCount = end;
+        
+        // Обновляем индикатор
+        const loadingElement = document.querySelector('.loading-message');
+        if (loadingElement) {
+          loadingElement.innerHTML = `⏳ Обработка данных... ${Math.round((processedCount / totalFeatures) * 100)}%`;
+        }
+        
+        if (processedCount < totalFeatures) {
+          // Используем requestAnimationFrame для неблокирующей обработки
+          requestAnimationFrame(processBatch);
+        } else {
+          // Все данные обработаны, создаем heatmap
+          console.log(`Обработано ${heatData.length} точек для heatmap`);
+          
+          // Удаляем индикатор загрузки
+          map.removeControl(loadingDiv);
+          
+          // Создаем heatmap слой с градиентом, соответствующим глубинам
+          // Градиент: красный (мелко) → оранжевый → желтый → зеленый → голубой → синий (глубоко)
+          const heatLayer = L.heatLayer(heatData, {
+            radius: 10,        // Радиус влияния каждой точки
+            blur: 15,          // Размытие для плавности
+            maxZoom: 18,        // Максимальный зум
+            max: 1.0,           // Максимальная интенсивность
+            minOpacity: 0.3,    // Минимальная прозрачность
+            gradient: {
+              0.0: 'blue',      // Глубоко (15м+) - синий
+              0.2: '#0080CC',   // 12-15м - синий
+              0.4: '#00FFCC',   // 9-12м - голубой
+              0.5: '#80FF00',   // 7.5-9м - зеленый
+              0.7: '#FFFF00',   // 3.75-7.5м - желтый
+              0.85: '#FF8000',  // 1.5-3.75м - оранжевый
+              1.0: 'red'        // Мелко (0-1.5м) - красный
+            }
+          });
+          
+          heatLayer.addTo(map);
+          console.log(`Heatmap создан с ${heatData.length} точками`);
+          
+          // Сохраняем ссылку на heatmap для возможного обновления
+          window.depthsHeatmap = heatLayer;
+          
+          // Легенда глубин для heatmap (добавляем после создания heatmap)
+          const legend = L.control({ position: 'bottomright' });
+          legend.onAdd = () => {
+            const div = L.DomUtil.create('div', 'legend');
+            div.style.cssText = 'background: rgba(255, 255, 255, 0.95); padding: 12px; border-radius: 6px; font-size: 11px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); max-width: 200px;';
+            
+            // Создаем градиентную полосу для легенды (инвертированный для heatmap)
+            // В heatmap: красный = мелко, синий = глубоко
+            let gradientHtml = '<div style="font-weight: bold; margin-bottom: 8px; font-size: 12px;">Глубина (м):</div>';
+            gradientHtml += '<div style="height: 20px; background: linear-gradient(to right, red, #FF8000, #FFFF00, #80FF00, #00FFCC, #0080CC, blue); border: 1px solid #333; border-radius: 3px; margin-bottom: 6px;"></div>';
+            gradientHtml += '<div style="display: flex; justify-content: space-between; font-size: 10px; color: #666;">';
+            gradientHtml += '<span>0 м (мелко)</span><span>7.5 м</span><span>15+ м (глубоко)</span>';
+            gradientHtml += '</div>';
+            
+            // Добавляем примеры цветов для ключевых глубин
+            gradientHtml += '<div style="margin-top: 8px; font-size: 10px;">';
+            gradientHtml += '<div><span style="background:red; width:14px; height:10px; display:inline-block; margin-right:4px; border:1px solid #333; border-radius:2px;"></span> 0-2 м (мелко) 🔴</div>';
+            gradientHtml += '<div><span style="background:#FFFF00; width:14px; height:10px; display:inline-block; margin-right:4px; border:1px solid #333; border-radius:2px;"></span> 5-7.5 м 🟡</div>';
+            gradientHtml += '<div><span style="background:#00FFCC; width:14px; height:10px; display:inline-block; margin-right:4px; border:1px solid #333; border-radius:2px;"></span> 9-12 м 🔵</div>';
+            gradientHtml += '<div><span style="background:blue; width:14px; height:10px; display:inline-block; margin-right:4px; border:1px solid #333; border-radius:2px;"></span> >15 м (глубоко) 🔷</div>';
+            gradientHtml += '</div>';
+            gradientHtml += '<div style="margin-top: 6px; font-size: 9px; color: #888; font-style: italic;">Тепловая карта глубин</div>';
+            
+            div.innerHTML = gradientHtml;
+            return div;
+          };
+          legend.addTo(map);
+        }
+      }
+      
+      // Начинаем обработку
+      processBatch();
     })
     .catch(err => {
       console.error('Ошибка загрузки глубин:', err);
@@ -286,39 +340,69 @@ document.addEventListener("DOMContentLoaded", () => {
         })
         .then(data => {
           console.log(`Загружен резервный файл: ${data.features.length} точек`);
-          // Повторяем логику отображения для резервного файла
-          let pointCount = 0;
-          const maxPoints = 50000;
           
-          data.features.forEach((feature) => {
-            if (pointCount >= maxPoints) return;
-            
+          // Подготавливаем данные для heatmap
+          const heatData = [];
+          const maxPoints = 100000;
+          
+          data.features.slice(0, maxPoints).forEach((feature) => {
             const [lon, lat] = feature.geometry.coordinates;
             const depth = feature.properties.depth;
-
+            
             if (typeof depth !== 'number' || isNaN(depth)) return;
             if (typeof lat !== 'number' || typeof lon !== 'number') return;
-
-            const color = getDepthColor(depth);
             
-            L.circleMarker([lat, lon], {
-              radius: 3,
-              fillColor: color,
-              fillOpacity: 0.7,
-              color: color,
-              weight: 1,
-              opacity: 0.8
-            })
-            .bindTooltip(`${depth.toFixed(1)} м`, {
-              permanent: false,
-              direction: 'auto'
-            })
-            .addTo(map);
+            const clampedDepth = Math.min(Math.max(depth, 0), 15);
+            const intensity = 1 - (clampedDepth / 15);
             
-            pointCount++;
+            heatData.push([lat, lon, intensity]);
           });
           
-          console.log(`Отображено ${pointCount} точек из резервного файла`);
+          // Создаем heatmap из резервного файла
+          const heatLayer = L.heatLayer(heatData, {
+            radius: 10,
+            blur: 15,
+            maxZoom: 18,
+            max: 1.0,
+            minOpacity: 0.3,
+            gradient: {
+              0.0: 'blue',
+              0.2: '#0080CC',
+              0.4: '#00FFCC',
+              0.5: '#80FF00',
+              0.7: '#FFFF00',
+              0.85: '#FF8000',
+              1.0: 'red'
+            }
+          });
+          
+          heatLayer.addTo(map);
+          window.depthsHeatmap = heatLayer;
+          console.log(`Отображено ${heatData.length} точек из резервного файла в heatmap`);
+          
+          // Добавляем легенду для резервного файла
+          const legend = L.control({ position: 'bottomright' });
+          legend.onAdd = () => {
+            const div = L.DomUtil.create('div', 'legend');
+            div.style.cssText = 'background: rgba(255, 255, 255, 0.95); padding: 12px; border-radius: 6px; font-size: 11px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); max-width: 200px;';
+            
+            let gradientHtml = '<div style="font-weight: bold; margin-bottom: 8px; font-size: 12px;">Глубина (м):</div>';
+            gradientHtml += '<div style="height: 20px; background: linear-gradient(to right, red, #FF8000, #FFFF00, #80FF00, #00FFCC, #0080CC, blue); border: 1px solid #333; border-radius: 3px; margin-bottom: 6px;"></div>';
+            gradientHtml += '<div style="display: flex; justify-content: space-between; font-size: 10px; color: #666;">';
+            gradientHtml += '<span>0 м (мелко)</span><span>7.5 м</span><span>15+ м (глубоко)</span>';
+            gradientHtml += '</div>';
+            gradientHtml += '<div style="margin-top: 8px; font-size: 10px;">';
+            gradientHtml += '<div><span style="background:red; width:14px; height:10px; display:inline-block; margin-right:4px; border:1px solid #333; border-radius:2px;"></span> 0-2 м (мелко) 🔴</div>';
+            gradientHtml += '<div><span style="background:#FFFF00; width:14px; height:10px; display:inline-block; margin-right:4px; border:1px solid #333; border-radius:2px;"></span> 5-7.5 м 🟡</div>';
+            gradientHtml += '<div><span style="background:#00FFCC; width:14px; height:10px; display:inline-block; margin-right:4px; border:1px solid #333; border-radius:2px;"></span> 9-12 м 🔵</div>';
+            gradientHtml += '<div><span style="background:blue; width:14px; height:10px; display:inline-block; margin-right:4px; border:1px solid #333; border-radius:2px;"></span> >15 м (глубоко) 🔷</div>';
+            gradientHtml += '</div>';
+            gradientHtml += '<div style="margin-top: 6px; font-size: 9px; color: #888; font-style: italic;">Тепловая карта глубин</div>';
+            
+            div.innerHTML = gradientHtml;
+            return div;
+          };
+          legend.addTo(map);
         })
         .catch(fallbackErr => {
           console.error('Ошибка загрузки резервного файла:', fallbackErr);
