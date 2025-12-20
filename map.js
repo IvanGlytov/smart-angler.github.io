@@ -215,17 +215,162 @@ document.addEventListener("DOMContentLoaded", () => {
           console.error('Карта не инициализирована');
           return;
         }
-        // Проверяем наличие Turf.js
-        if (typeof turf === 'undefined') {
-          console.error('Turf.js не загружен! Добавьте <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>');
-          return;
-        }
-        
         // Подготавливаем данные для создания изолиний
         // Фильтруем и ограничиваем количество точек для производительности
         const maxPoints = 50000; // Меньше точек для изолиний, так как они требуют больше вычислений
         const filteredFeatures = [];
         const sampleRate = Math.max(1, Math.floor(data.features.length / maxPoints));
+        
+        // Функция для интерполяции значения на сетке (IDW - Inverse Distance Weighting)
+        function interpolateValue(gridX, gridY, points, power = 2) {
+          let sumWeight = 0;
+          let sumValue = 0;
+          let closestDistance = Infinity;
+          let closestValue = 0;
+          
+          for (let i = 0; i < points.length; i++) {
+            const point = points[i];
+            const [lon, lat] = point.geometry.coordinates;
+            const depth = point.properties.depth;
+            
+            const dx = gridX - lon;
+            const dy = gridY - lat;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            // Сохраняем ближайшую точку на случай, если все точки далеко
+            if (distance < closestDistance) {
+              closestDistance = distance;
+              closestValue = depth;
+            }
+            
+            if (distance < 0.0001) {
+              // Если точка очень близко, возвращаем её значение сразу
+              return depth;
+            }
+            
+            const weight = 1 / Math.pow(distance, power);
+            sumWeight += weight;
+            sumValue += weight * depth;
+          }
+          
+          // Если все точки далеко, используем значение ближайшей точки
+          if (sumWeight === 0 || closestDistance > 0.01) {
+            return closestValue;
+          }
+          
+          return sumValue / sumWeight;
+        }
+        
+        // Функция для создания полигонов цветовых зон
+        function createDepthZones(grid, contourLevels, depthColors) {
+          const zones = [];
+          const rows = grid.length;
+          const cols = grid[0].length;
+          
+          // Создаем полигоны для каждой зоны между изолиниями
+          for (let levelIndex = 0; levelIndex < contourLevels.length - 1; levelIndex++) {
+            const lower = contourLevels[levelIndex];
+            const upper = contourLevels[levelIndex + 1];
+            const color = depthColors[lower];
+            
+            // Находим все ячейки сетки, которые попадают в этот диапазон
+            const zoneCells = [];
+            for (let i = 0; i < rows - 1; i++) {
+              for (let j = 0; j < cols - 1; j++) {
+                const value = grid[i][j];
+                if (value >= lower && value < upper) {
+                  zoneCells.push({ row: i, col: j, value: value });
+                }
+              }
+            }
+            
+            // Группируем соседние ячейки в полигоны
+            if (zoneCells.length > 0) {
+              // Создаем простые квадратные полигоны для каждой ячейки
+              zoneCells.forEach(cell => {
+                // Получаем координаты углов ячейки из сетки
+                // Это упрощенный подход - в реальности нужно использовать координаты сетки
+                const polygon = {
+                  type: 'Feature',
+                  geometry: {
+                    type: 'Polygon',
+                    coordinates: [[
+                      [cell.col * 0.001, cell.row * 0.001],
+                      [(cell.col + 1) * 0.001, cell.row * 0.001],
+                      [(cell.col + 1) * 0.001, (cell.row + 1) * 0.001],
+                      [cell.col * 0.001, (cell.row + 1) * 0.001],
+                      [cell.col * 0.001, cell.row * 0.001]
+                    ]]
+                  },
+                  properties: {
+                    depthRange: `${lower}-${upper}м`,
+                    fill: color,
+                    fillOpacity: 0.6,
+                    stroke: color,
+                    strokeWidth: 0.5
+                  }
+                };
+                zones.push(polygon);
+              });
+            }
+          }
+          
+          return zones;
+        }
+        
+        // Функция для создания изолиний (упрощенный алгоритм)
+        function createContours(grid, level, bbox, cellSize) {
+          const contours = [];
+          const rows = grid.length;
+          const cols = grid[0].length;
+          
+          // Простой алгоритм построения изолиний на основе сетки
+          // Используем алгоритм marching squares для построения контуров
+          for (let i = 0; i < rows - 1; i++) {
+            for (let j = 0; j < cols - 1; j++) {
+              const corners = [
+                grid[i][j],
+                grid[i][j + 1],
+                grid[i + 1][j + 1],
+                grid[i + 1][j]
+              ];
+              
+              // Проверяем, пересекает ли изолиния этот квадрат
+              const above = corners.map(v => v >= level);
+              const below = corners.map(v => v < level);
+              
+              if (above.some(v => v) && below.some(v => v)) {
+                // Изолиния пересекает этот квадрат
+                // Создаем простой сегмент линии
+                const lon = bbox[0] + j * cellSize;
+                const lat = bbox[1] + i * cellSize;
+                
+                const contour = {
+                  type: 'Feature',
+                  geometry: {
+                    type: 'LineString',
+                    coordinates: [
+                      [lon, lat],
+                      [lon + cellSize, lat],
+                      [lon + cellSize, lat + cellSize],
+                      [lon, lat + cellSize],
+                      [lon, lat]
+                    ]
+                  },
+                  properties: {
+                    depth: level,
+                    stroke: '#333',
+                    strokeWidth: (level % 2.5 === 0 || level === 0) ? 2 : 1,
+                    strokeOpacity: 0.8
+                  }
+                };
+                contours.push(contour);
+              }
+            }
+          }
+          
+          return contours;
+        }
         
         // Проверяем, что карта имеет контейнер
         if (!map || !map.getContainer()) {
@@ -306,13 +451,21 @@ document.addEventListener("DOMContentLoaded", () => {
             // Используем setTimeout для неблокирующей обработки
             setTimeout(() => {
               try {
-                // Создаем FeatureCollection для Turf.js
-                const points = turf.featureCollection(filteredFeatures);
-                
                 // Определяем границы области данных
-                const bbox = turf.bbox(points);
+                let minLon = Infinity, maxLon = -Infinity;
+                let minLat = Infinity, maxLat = -Infinity;
+                
+                filteredFeatures.forEach(feature => {
+                  const [lon, lat] = feature.geometry.coordinates;
+                  minLon = Math.min(minLon, lon);
+                  maxLon = Math.max(maxLon, lon);
+                  minLat = Math.min(minLat, lat);
+                  maxLat = Math.max(maxLat, lat);
+                });
+                
                 const cellSize = 0.001; // Размер ячейки сетки в градусах (~100м)
-                const units = 'kilometers';
+                const gridCols = Math.ceil((maxLon - minLon) / cellSize) + 1;
+                const gridRows = Math.ceil((maxLat - minLat) / cellSize) + 1;
                 
                 // Определяем уровни изолиний (изобаты) в метрах
                 const contourLevels = [0, 1, 2, 3, 4, 5, 6, 7.5, 9, 10, 12, 15];
@@ -333,80 +486,153 @@ document.addEventListener("DOMContentLoaded", () => {
                   15: '#0000CC'      // 15м+ - самый темный синий
                 };
                 
-                // Создаем изобанды (цветовые зоны между изолиниями)
-                // Используем все уровни для создания изобанд
-                const breaks = [...contourLevels];
-                let isobands = [];
+                // Обновляем индикатор
+                if (loadingElement) {
+                  loadingElement.innerHTML = '⏳ Создание сетки и интерполяция...';
+                }
                 
-                try {
-                  const bands = turf.isobands(points, breaks, {
-                    zProperty: 'depth',
-                    cellSize: cellSize
-                  });
+                // Создаем регулярную сетку и интерполируем значения
+                const grid = [];
+                for (let i = 0; i < gridRows; i++) {
+                  grid[i] = [];
+                  for (let j = 0; j < gridCols; j++) {
+                    const lon = minLon + j * cellSize;
+                    const lat = minLat + i * cellSize;
+                    const depth = interpolateValue(lon, lat, filteredFeatures, 2);
+                    grid[i][j] = depth;
+                  }
                   
-                  // Добавляем цвета для каждой зоны
-                  bands.features.forEach((feature, index) => {
-                    if (index < breaks.length - 1) {
-                      const lower = breaks[index];
-                      const upper = breaks[index + 1];
-                      feature.properties.depthRange = `${lower}-${upper}м`;
-                      feature.properties.fill = depthColors[lower] || '#888';
-                      feature.properties.fillOpacity = 0.6;
-                      feature.properties.stroke = depthColors[lower] || '#333';
-                      feature.properties.strokeWidth = 0.5;
-                    }
-                  });
+                  // Обновляем прогресс
+                  if (i % 10 === 0 && loadingElement) {
+                    loadingElement.innerHTML = `⏳ Создание сетки... ${Math.round((i / gridRows) * 50)}%`;
+                  }
+                }
+                
+                // Обновляем индикатор
+                if (loadingElement) {
+                  loadingElement.innerHTML = '⏳ Создание цветовых зон...';
+                }
+                
+                // Создаем цветовые зоны (изобанды)
+                const isobands = [];
+                for (let levelIndex = 0; levelIndex < contourLevels.length - 1; levelIndex++) {
+                  const lower = contourLevels[levelIndex];
+                  const upper = contourLevels[levelIndex + 1];
+                  const color = depthColors[lower];
                   
-                  isobands = bands.features;
-                } catch (e) {
-                  console.warn('Не удалось создать изобанды:', e);
-                  // Пробуем создать изобанды по одной
-                  for (let i = 0; i < contourLevels.length - 1; i++) {
-                    const lower = contourLevels[i];
-                    const upper = contourLevels[i + 1];
-                    
-                    try {
-                      const bands = turf.isobands(points, [lower, upper], {
-                        zProperty: 'depth',
-                        cellSize: cellSize
-                      });
-                      
-                      bands.features.forEach(feature => {
-                        feature.properties.depthRange = `${lower}-${upper}м`;
-                        feature.properties.fill = depthColors[lower];
-                        feature.properties.fillOpacity = 0.6;
-                        feature.properties.stroke = depthColors[lower];
-                        feature.properties.strokeWidth = 0.5;
-                      });
-                      
-                      isobands.push(...bands.features);
-                    } catch (e2) {
-                      console.warn(`Не удалось создать изобанду для ${lower}-${upper}м:`, e2);
+                  // Находим все ячейки сетки в этом диапазоне и создаем полигоны
+                  for (let i = 0; i < gridRows - 1; i++) {
+                    for (let j = 0; j < gridCols - 1; j++) {
+                      const depth = grid[i][j];
+                      if (depth >= lower && depth < upper) {
+                        const lon = minLon + j * cellSize;
+                        const lat = minLat + i * cellSize;
+                        
+                        const polygon = {
+                          type: 'Feature',
+                          geometry: {
+                            type: 'Polygon',
+                            coordinates: [[
+                              [lon, lat],
+                              [lon + cellSize, lat],
+                              [lon + cellSize, lat + cellSize],
+                              [lon, lat + cellSize],
+                              [lon, lat]
+                            ]]
+                          },
+                          properties: {
+                            depthRange: `${lower}-${upper}м`,
+                            fill: color,
+                            fillOpacity: 0.6,
+                            stroke: color,
+                            strokeWidth: 0.5,
+                            strokeOpacity: 0.5
+                          }
+                        };
+                        isobands.push(polygon);
+                      }
                     }
                   }
+                }
+                
+                // Обновляем индикатор
+                if (loadingElement) {
+                  loadingElement.innerHTML = '⏳ Создание изолиний...';
                 }
                 
                 // Создаем изолинии (линии одинаковой глубины)
                 const contours = [];
                 contourLevels.forEach(level => {
-                  try {
-                    const contour = turf.contour(points, {
-                      zProperty: 'depth',
-                      levels: [level],
-                      cellSize: cellSize
-                    });
-                    
-                    contour.features.forEach(feature => {
-                      feature.properties.depth = level;
-                      feature.properties.stroke = '#333';
-                      feature.properties.strokeWidth = (level % 2.5 === 0 || level === 0) ? 2 : 1; // Более толстые линии для основных уровней
-                      feature.properties.strokeOpacity = 0.8;
-                      feature.properties.fill = 'none';
-                    });
-                    
-                    contours.push(...contour.features);
-                  } catch (e) {
-                    console.warn(`Не удалось создать изолинию для ${level}м:`, e);
+                  // Создаем линии для каждого уровня
+                  for (let i = 0; i < gridRows - 1; i++) {
+                    for (let j = 0; j < gridCols - 1; j++) {
+                      const corners = [
+                        grid[i][j],
+                        grid[i][j + 1],
+                        grid[i + 1][j + 1],
+                        grid[i + 1][j]
+                      ];
+                      
+                      // Проверяем, пересекает ли изолиния этот квадрат
+                      const hasAbove = corners.some(v => v >= level);
+                      const hasBelow = corners.some(v => v < level);
+                      
+                      if (hasAbove && hasBelow) {
+                        // Упрощенный алгоритм: создаем линию по границе квадрата
+                        const lon = minLon + j * cellSize;
+                        const lat = minLat + i * cellSize;
+                        
+                        // Определяем, какие стороны пересекает изолиния
+                        const lineCoords = [];
+                        
+                        // Верхняя сторона
+                        if ((corners[0] >= level) !== (corners[1] >= level)) {
+                          const t = (level - corners[0]) / (corners[1] - corners[0]);
+                          lineCoords.push([lon + t * cellSize, lat]);
+                        }
+                        
+                        // Правая сторона
+                        if ((corners[1] >= level) !== (corners[2] >= level)) {
+                          const t = (level - corners[1]) / (corners[2] - corners[1]);
+                          lineCoords.push([lon + cellSize, lat + t * cellSize]);
+                        }
+                        
+                        // Нижняя сторона
+                        if ((corners[2] >= level) !== (corners[3] >= level)) {
+                          const t = (level - corners[2]) / (corners[3] - corners[2]);
+                          lineCoords.push([lon + (1 - t) * cellSize, lat + cellSize]);
+                        }
+                        
+                        // Левая сторона
+                        if ((corners[3] >= level) !== (corners[0] >= level)) {
+                          const t = (level - corners[3]) / (corners[0] - corners[3]);
+                          lineCoords.push([lon, lat + (1 - t) * cellSize]);
+                        }
+                        
+                        // Если есть точки пересечения, создаем линию
+                        if (lineCoords.length >= 2) {
+                          // Замыкаем линию, если нужно
+                          if (lineCoords.length === 2) {
+                            lineCoords.push(lineCoords[0]);
+                          }
+                          
+                          const contour = {
+                            type: 'Feature',
+                            geometry: {
+                              type: 'LineString',
+                              coordinates: lineCoords
+                            },
+                            properties: {
+                              depth: level,
+                              stroke: '#333',
+                              strokeWidth: (level % 2.5 === 0 || level === 0) ? 2 : 1,
+                              strokeOpacity: 0.8
+                            }
+                          };
+                          contours.push(contour);
+                        }
+                      }
+                    }
                   }
                 });
                 
@@ -431,7 +657,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 setTimeout(() => {
                   try {
                     // Создаем группу слоев для изобанд (цветовые зоны)
-                    const isobandsLayer = L.geoJSON(turf.featureCollection(isobands), {
+                    const isobandsCollection = {
+                      type: 'FeatureCollection',
+                      features: isobands
+                    };
+                    const isobandsLayer = L.geoJSON(isobandsCollection, {
                       style: (feature) => ({
                         fillColor: feature.properties.fill || '#888',
                         fillOpacity: feature.properties.fillOpacity || 0.6,
@@ -446,7 +676,11 @@ document.addEventListener("DOMContentLoaded", () => {
                     });
                     
                     // Создаем группу слоев для изолиний (линии)
-                    const contoursLayer = L.geoJSON(turf.featureCollection(contours), {
+                    const contoursCollection = {
+                      type: 'FeatureCollection',
+                      features: contours
+                    };
+                    const contoursLayer = L.geoJSON(contoursCollection, {
                       style: (feature) => ({
                         color: feature.properties.stroke || '#333',
                         weight: feature.properties.strokeWidth || 1,
@@ -620,8 +854,21 @@ document.addEventListener("DOMContentLoaded", () => {
             // Используем setTimeout для гарантии готовности карты
             setTimeout(() => {
               try {
-                const points = turf.featureCollection(filteredFeatures);
+                // Определяем границы области данных
+                let minLon = Infinity, maxLon = -Infinity;
+                let minLat = Infinity, maxLat = -Infinity;
+                
+                filteredFeatures.forEach(feature => {
+                  const [lon, lat] = feature.geometry.coordinates;
+                  minLon = Math.min(minLon, lon);
+                  maxLon = Math.max(maxLon, lon);
+                  minLat = Math.min(minLat, lat);
+                  maxLat = Math.max(maxLat, lat);
+                });
+                
                 const cellSize = 0.001;
+                const gridCols = Math.ceil((maxLon - minLon) / cellSize) + 1;
+                const gridRows = Math.ceil((maxLat - minLat) / cellSize) + 1;
                 const contourLevels = [0, 1, 2, 3, 4, 5, 6, 7.5, 9, 10, 12, 15];
                 
                 const depthColors = {
@@ -630,53 +877,54 @@ document.addEventListener("DOMContentLoaded", () => {
                   10: '#0066CC', 12: '#0040CC', 15: '#0000CC'
                 };
                 
-                // Создаем изобанды
-                const breaks = [...contourLevels];
-                let isobands = [];
+                // Создаем сетку и интерполируем значения
+                const grid = [];
+                for (let i = 0; i < gridRows; i++) {
+                  grid[i] = [];
+                  for (let j = 0; j < gridCols; j++) {
+                    const lon = minLon + j * cellSize;
+                    const lat = minLat + i * cellSize;
+                    const depth = interpolateValue(lon, lat, filteredFeatures, 2);
+                    grid[i][j] = depth;
+                  }
+                }
                 
-                try {
-                  const bands = turf.isobands(points, breaks, {
-                    zProperty: 'depth',
-                    cellSize: cellSize
-                  });
+                // Создаем цветовые зоны
+                const isobands = [];
+                for (let levelIndex = 0; levelIndex < contourLevels.length - 1; levelIndex++) {
+                  const lower = contourLevels[levelIndex];
+                  const upper = contourLevels[levelIndex + 1];
+                  const color = depthColors[lower];
                   
-                  bands.features.forEach((feature, index) => {
-                    if (index < breaks.length - 1) {
-                      const lower = breaks[index];
-                      const upper = breaks[index + 1];
-                      feature.properties.depthRange = `${lower}-${upper}м`;
-                      feature.properties.fill = depthColors[lower] || '#888';
-                      feature.properties.fillOpacity = 0.6;
-                      feature.properties.stroke = depthColors[lower] || '#333';
-                      feature.properties.strokeWidth = 0.5;
-                    }
-                  });
-                  
-                  isobands = bands.features;
-                } catch (e) {
-                  console.warn('Не удалось создать изобанды для резервного файла:', e);
-                  // Пробуем создать по одной
-                  for (let i = 0; i < contourLevels.length - 1; i++) {
-                    const lower = contourLevels[i];
-                    const upper = contourLevels[i + 1];
-                    
-                    try {
-                      const bands = turf.isobands(points, [lower, upper], {
-                        zProperty: 'depth',
-                        cellSize: cellSize
-                      });
-                      
-                      bands.features.forEach(feature => {
-                        feature.properties.depthRange = `${lower}-${upper}м`;
-                        feature.properties.fill = depthColors[lower];
-                        feature.properties.fillOpacity = 0.6;
-                        feature.properties.stroke = depthColors[lower];
-                        feature.properties.strokeWidth = 0.5;
-                      });
-                      
-                      isobands.push(...bands.features);
-                    } catch (e2) {
-                      // Игнорируем ошибки отдельных зон
+                  for (let i = 0; i < gridRows - 1; i++) {
+                    for (let j = 0; j < gridCols - 1; j++) {
+                      const depth = grid[i][j];
+                      if (depth >= lower && depth < upper) {
+                        const lon = minLon + j * cellSize;
+                        const lat = minLat + i * cellSize;
+                        
+                        isobands.push({
+                          type: 'Feature',
+                          geometry: {
+                            type: 'Polygon',
+                            coordinates: [[
+                              [lon, lat],
+                              [lon + cellSize, lat],
+                              [lon + cellSize, lat + cellSize],
+                              [lon, lat + cellSize],
+                              [lon, lat]
+                            ]]
+                          },
+                          properties: {
+                            depthRange: `${lower}-${upper}м`,
+                            fill: color,
+                            fillOpacity: 0.6,
+                            stroke: color,
+                            strokeWidth: 0.5,
+                            strokeOpacity: 0.5
+                          }
+                        });
+                      }
                     }
                   }
                 }
@@ -684,29 +932,70 @@ document.addEventListener("DOMContentLoaded", () => {
                 // Создаем изолинии
                 const contours = [];
                 contourLevels.forEach(level => {
-                  try {
-                    const contour = turf.contour(points, {
-                      zProperty: 'depth',
-                      levels: [level],
-                      cellSize: cellSize
-                    });
-                    
-                    contour.features.forEach(feature => {
-                      feature.properties.depth = level;
-                      feature.properties.stroke = '#333';
-                      feature.properties.strokeWidth = (level % 2.5 === 0 || level === 0) ? 2 : 1;
-                      feature.properties.strokeOpacity = 0.8;
-                      feature.properties.fill = 'none';
-                    });
-                    
-                    contours.push(...contour.features);
-                  } catch (e) {
-                    console.warn(`Не удалось создать изолинию для ${level}м:`, e);
+                  for (let i = 0; i < gridRows - 1; i++) {
+                    for (let j = 0; j < gridCols - 1; j++) {
+                      const corners = [
+                        grid[i][j],
+                        grid[i][j + 1],
+                        grid[i + 1][j + 1],
+                        grid[i + 1][j]
+                      ];
+                      
+                      const hasAbove = corners.some(v => v >= level);
+                      const hasBelow = corners.some(v => v < level);
+                      
+                      if (hasAbove && hasBelow) {
+                        const lon = minLon + j * cellSize;
+                        const lat = minLat + i * cellSize;
+                        const lineCoords = [];
+                        
+                        if ((corners[0] >= level) !== (corners[1] >= level)) {
+                          const t = (level - corners[0]) / (corners[1] - corners[0]);
+                          lineCoords.push([lon + t * cellSize, lat]);
+                        }
+                        if ((corners[1] >= level) !== (corners[2] >= level)) {
+                          const t = (level - corners[1]) / (corners[2] - corners[1]);
+                          lineCoords.push([lon + cellSize, lat + t * cellSize]);
+                        }
+                        if ((corners[2] >= level) !== (corners[3] >= level)) {
+                          const t = (level - corners[2]) / (corners[3] - corners[2]);
+                          lineCoords.push([lon + (1 - t) * cellSize, lat + cellSize]);
+                        }
+                        if ((corners[3] >= level) !== (corners[0] >= level)) {
+                          const t = (level - corners[3]) / (corners[0] - corners[3]);
+                          lineCoords.push([lon, lat + (1 - t) * cellSize]);
+                        }
+                        
+                        if (lineCoords.length >= 2) {
+                          if (lineCoords.length === 2) {
+                            lineCoords.push(lineCoords[0]);
+                          }
+                          
+                          contours.push({
+                            type: 'Feature',
+                            geometry: {
+                              type: 'LineString',
+                              coordinates: lineCoords
+                            },
+                            properties: {
+                              depth: level,
+                              stroke: '#333',
+                              strokeWidth: (level % 2.5 === 0 || level === 0) ? 2 : 1,
+                              strokeOpacity: 0.8
+                            }
+                          });
+                        }
+                      }
+                    }
                   }
                 });
                 
                 if (map && map.getContainer()) {
-                  const isobandsLayer = L.geoJSON(turf.featureCollection(isobands), {
+                  const isobandsCollection = {
+                    type: 'FeatureCollection',
+                    features: isobands
+                  };
+                  const isobandsLayer = L.geoJSON(isobandsCollection, {
                     style: (feature) => ({
                       fillColor: feature.properties.fill || '#888',
                       fillOpacity: feature.properties.fillOpacity || 0.6,
@@ -716,7 +1005,11 @@ document.addEventListener("DOMContentLoaded", () => {
                     })
                   });
                   
-                  const contoursLayer = L.geoJSON(turf.featureCollection(contours), {
+                  const contoursCollection = {
+                    type: 'FeatureCollection',
+                    features: contours
+                  };
+                  const contoursLayer = L.geoJSON(contoursCollection, {
                     style: (feature) => ({
                       color: feature.properties.stroke || '#333',
                       weight: feature.properties.strokeWidth || 1,
