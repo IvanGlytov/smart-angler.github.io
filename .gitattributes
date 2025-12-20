@@ -1,2 +1,2 @@
 *.geojson filter=lfs diff=lfs merge=lfs -text
-merged_depths.geojson -filter -diff -merge text
+*.geojson filter=lfs diff=lfs merge=lfs -text
