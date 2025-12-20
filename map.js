@@ -8,18 +8,20 @@ document.addEventListener("DOMContentLoaded", () => {
   Telegram.WebApp.expand();
 
   // Конфигурация: URL файла с глубинами
-  // Используем локальный файл с сервера (рекомендуется для продакшена)
-  // Файл all_depths.geojson должен находиться в той же папке, что и index.html
+  // Используем Yandex Object Storage с настроенным CORS
   
   // Отключаем все внешние источники
   const GOOGLE_DRIVE_FILE_ID = '';
   const GOOGLE_DRIVE_DIRECT_URL = '';
-  const USE_CORS_PROXY = false; // Не требуется для локального файла
+  const USE_CORS_PROXY = false; // Не требуется для Yandex Cloud
   const CORS_PROXY_URL = '';
   const GITHUB_RELEASES_URL = '';
-  const DIRECT_FILE_URL = '';
   
-  // Используем локальный файл с сервера
+  // Используем Yandex Object Storage
+  // ЗАМЕНИТЕ на ваш реальный URL из Yandex Cloud
+  const DIRECT_FILE_URL = 'https://storage.yandexcloud.net/depths-map/all_depths.geojson';
+  
+  // Локальный файл (резервный вариант, если Yandex Cloud недоступен)
   const LOCAL_FILE_URL = 'all_depths.geojson';
   
   // Определяем, какой источник использовать (приоритет: GitHub Releases > Direct URL > Google Drive > Local)
