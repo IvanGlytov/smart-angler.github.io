@@ -22,20 +22,10 @@ document.addEventListener("DOMContentLoaded", () => {
   // const DIRECT_FILE_URL = 'https://storage.yandexcloud.net/depths-map/all_depths.geojson';
   const DIRECT_FILE_URL = 'https://storage.yandexcloud.net/depths-map/all_depths_small.geojson'
   
-  // URL файла с готовыми изолиниями и цветовыми зонами
-  // Создается один раз скриптом generate_contours.py
-  const CONTOURS_FILE_URL = 'https://storage.yandexcloud.net/depths-map/all_depths_small_contours.geojson';
-  // Локальный файл с изолиниями (резервный вариант)
-  const LOCAL_CONTOURS_FILE_URL = 'all_depths_small_contours.geojson';
-  
   // Локальный файл с точками (резервный вариант, если Yandex Cloud недоступен)
   const LOCAL_FILE_URL = 'all_depths_small.geojson';
   
-  // Использовать готовые изолинии (рекомендуется) или создавать на лету
-  const USE_PRECOMPUTED_CONTOURS = true;
-  
-  // Отображать точки через heatmap (для уменьшения нагрузки)
-  const USE_HEATMAP = true;
+  // Параметры heatmap
   const HEATMAP_MAX_POINTS = 100000; // Максимальное количество точек для heatmap
   const HEATMAP_RADIUS = 15; // Радиус точки в пикселях
   const HEATMAP_BLUR = 20; // Размытие в пикселях
@@ -203,80 +193,12 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // Функция получения цвета по глубине (30 градаций от 0 до 15 метров)
-  function getDepthColor(depth) {
-    // Ограничиваем глубину до 15 метров
-    const clampedDepth = Math.min(Math.max(depth, 0), 15);
-    
-    // Нормализуем глубину от 0 до 1 (0-15 метров)
-    const normalized = clampedDepth / 15;
-    
-    // Вычисляем индекс градации (0-29 для 30 градаций)
-    const gradientIndex = Math.min(Math.floor(normalized * 30), 29);
-    
-    // Функция для интерполяции цвета между двумя цветами
-    function interpolateColor(color1, color2, factor) {
-      const r1 = parseInt(color1.substr(1, 2), 16);
-      const g1 = parseInt(color1.substr(3, 2), 16);
-      const b1 = parseInt(color1.substr(5, 2), 16);
-      const r2 = parseInt(color2.substr(1, 2), 16);
-      const g2 = parseInt(color2.substr(3, 2), 16);
-      const b2 = parseInt(color2.substr(5, 2), 16);
-      
-      const r = Math.round(r1 + (r2 - r1) * factor);
-      const g = Math.round(g1 + (g2 - g1) * factor);
-      const b = Math.round(b1 + (b2 - b1) * factor);
-      
-      return '#' + [r, g, b].map(x => {
-        const hex = x.toString(16);
-        return hex.length === 1 ? '0' + hex : hex;
-      }).join('');
-    }
-    
-    // Ключевые цвета для градиента (красный → оранжевый → желтый → зеленый → голубой → синий → темно-синий)
-    const keyColors = [
-      '#FF0000', // 0: Красный (0 м)
-      '#FF8000', // Оранжевый (3.75 м)
-      '#FFFF00', // Желтый (7.5 м)
-      '#80FF00', // Зеленый (11.25 м)
-      '#00FFCC', // Голубой (13.125 м)
-      '#0080CC', // Синий (14.0625 м)
-      '#0000CC'  // Темно-синий (15+ м)
-    ];
-    
-    // Разбиваем на 30 градаций между ключевыми цветами
-    const segments = keyColors.length - 1;
-    const segmentSize = 30 / segments; // ~4.29 градаций на сегмент
-    
-    const segmentIndex = Math.floor(gradientIndex / segmentSize);
-    const segmentFactor = (gradientIndex % segmentSize) / segmentSize;
-    
-    const color1 = keyColors[Math.min(segmentIndex, keyColors.length - 2)];
-    const color2 = keyColors[Math.min(segmentIndex + 1, keyColors.length - 1)];
-    
-    return interpolateColor(color1, color2, segmentFactor);
-  }
-
-  // Определяем URL для загрузки изолиний
-  let contoursFileUrl = '';
-  if (USE_PRECOMPUTED_CONTOURS) {
-    // Используем готовые изолинии
-    if (CONTOURS_FILE_URL) {
-      contoursFileUrl = CONTOURS_FILE_URL;
-    } else if (LOCAL_CONTOURS_FILE_URL) {
-      contoursFileUrl = LOCAL_CONTOURS_FILE_URL;
-    }
-  }
-  
-  // Загрузка данных глубин (изолинии или точки)
-  const fileUrlToLoad = USE_PRECOMPUTED_CONTOURS && contoursFileUrl ? contoursFileUrl : depthsFileUrl;
-  console.log(USE_PRECOMPUTED_CONTOURS && contoursFileUrl 
-    ? `Загрузка готовых изолиний с URL: ${contoursFileUrl}`
-    : `Загрузка файла глубин с URL: ${depthsFileUrl}`);
+  // Загрузка данных глубин
+  console.log(`Загрузка файла глубин с URL: ${depthsFileUrl}`);
   
   // Ждем, пока карта полностью инициализируется перед загрузкой данных
   map.whenReady(() => {
-  fetch(fileUrlToLoad)
+  fetch(depthsFileUrl)
     .then(res => {
       if (!res.ok) {
         throw new Error(`HTTP error! status: ${res.status}`);
@@ -307,7 +229,7 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     })
     .then(data => {
-      console.log(`Загружено ${data.features.length} элементов`);
+      console.log(`Загружено ${data.features.length} точек глубин`);
       
       // Проверяем, что карта инициализирована
       if (!map) {
@@ -315,736 +237,71 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
       
-      // Если загружены готовые изолинии, просто отображаем их
-      if (USE_PRECOMPUTED_CONTOURS && contoursFileUrl) {
-        console.log('Используются готовые изолинии из файла');
-        
-        // Показываем индикатор загрузки
-        let loadingDiv = null;
-        try {
-          const mapContainer = map.getContainer();
-          if (mapContainer) {
-            loadingDiv = document.createElement('div');
-            loadingDiv.className = 'loading-message';
-            loadingDiv.style.cssText = 'position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 1000; background: rgba(0, 0, 0, 0.7); color: white; padding: 10px; border-radius: 5px; font-size: 12px; text-align: center; pointer-events: none;';
-            loadingDiv.innerHTML = '⏳ Загрузка изолиний...';
-            mapContainer.appendChild(loadingDiv);
-          }
-        } catch (addError) {
-          console.warn('Не удалось добавить индикатор загрузки:', addError);
+      // Показываем индикатор загрузки
+      let loadingDiv = null;
+      try {
+        const mapContainer = map.getContainer();
+        if (mapContainer) {
+          loadingDiv = document.createElement('div');
+          loadingDiv.className = 'loading-message';
+          loadingDiv.style.cssText = 'position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 1000; background: rgba(0, 0, 0, 0.7); color: white; padding: 10px; border-radius: 5px; font-size: 12px; text-align: center; pointer-events: none;';
+          loadingDiv.innerHTML = '⏳ Загрузка данных...';
+          mapContainer.appendChild(loadingDiv);
         }
-        
-        // Разделяем изобанды и изолинии
-        const isobands = [];
-        const contours = [];
-        
-        data.features.forEach(feature => {
-          if (feature.geometry.type === 'Polygon') {
-            isobands.push(feature);
-          } else if (feature.geometry.type === 'LineString') {
-            contours.push(feature);
-          }
-        });
-        
-        console.log(`Найдено ${isobands.length} цветовых зон и ${contours.length} изолиний`);
-        
-        // Удаляем индикатор загрузки
-        try {
-          if (loadingDiv && loadingDiv.parentNode) {
-            loadingDiv.parentNode.removeChild(loadingDiv);
-          }
-        } catch (e) {
-          // Игнорируем ошибку удаления
-        }
-        
-        // Отображаем изолинии на карте
-        setTimeout(() => {
-          try {
-            // Создаем группу слоев для изобанд (цветовые зоны)
-            const isobandsCollection = {
-              type: 'FeatureCollection',
-              features: isobands
-            };
-            const isobandsLayer = L.geoJSON(isobandsCollection, {
-              style: (feature) => ({
-                fillColor: feature.properties.fill || '#888',
-                fillOpacity: feature.properties.fillOpacity || 0.6,
-                color: feature.properties.stroke || '#333',
-                weight: feature.properties.strokeWidth || 0.5,
-                opacity: feature.properties.strokeOpacity || 0.5
-              }),
-              onEachFeature: (feature, layer) => {
-                const depthRange = feature.properties.depthRange || 'неизвестно';
-                layer.bindTooltip(`${depthRange}`, { permanent: false, direction: 'center' });
-              }
-            });
-            
-            // Создаем группу слоев для изолиний (линии)
-            const contoursCollection = {
-              type: 'FeatureCollection',
-              features: contours
-            };
-            const contoursLayer = L.geoJSON(contoursCollection, {
-              style: (feature) => ({
-                color: feature.properties.stroke || '#333',
-                weight: feature.properties.strokeWidth || 1,
-                opacity: feature.properties.strokeOpacity || 0.8,
-                fill: false
-              }),
-              onEachFeature: (feature, layer) => {
-                const depth = feature.properties.depth || 'неизвестно';
-                layer.bindTooltip(`${depth} м`, { permanent: false, direction: 'center' });
-              }
-            });
-            
-            if (map && map.getContainer()) {
-              // Добавляем сначала цветовые зоны, затем изолинии поверх
-              isobandsLayer.addTo(map);
-              contoursLayer.addTo(map);
-              
-              console.log(`Изолинии отображены: ${isobands.length} зон, ${contours.length} линий`);
-              
-              // Сохраняем ссылки на слои
-              window.depthsIsobands = isobandsLayer;
-              window.depthsContours = contoursLayer;
-              
-              // Легенда глубин для изолиний
-              const legend = L.control({ position: 'bottomright' });
-              legend.onAdd = () => {
-                const div = L.DomUtil.create('div', 'legend');
-                div.style.cssText = 'background: rgba(255, 255, 255, 0.95); padding: 12px; border-radius: 6px; font-size: 11px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); max-width: 200px;';
-                
-                let legendHtml = '<div style="font-weight: bold; margin-bottom: 8px; font-size: 12px;">Глубина (м):</div>';
-                
-                // Добавляем примеры цветов для зон глубин
-                const depthRanges = [
-                  { range: '0-1 м', color: '#FF0000', label: '0-1 м (мелко) 🔴' },
-                  { range: '1-2 м', color: '#FF8000', label: '1-2 м 🟠' },
-                  { range: '2-3 м', color: '#FFFF00', label: '2-3 м 🟡' },
-                  { range: '3-4 м', color: '#CCFF00', label: '3-4 м 🟢' },
-                  { range: '4-5 м', color: '#80FF00', label: '4-5 м 🟢' },
-                  { range: '5-6 м', color: '#40FF80', label: '5-6 м 🔵' },
-                  { range: '6-7.5 м', color: '#00FFCC', label: '6-7.5 м 🔵' },
-                  { range: '7.5-9 м', color: '#00CCFF', label: '7.5-9 м 🔵' },
-                  { range: '9-10 м', color: '#0080FF', label: '9-10 м 🔵' },
-                  { range: '10-12 м', color: '#0066CC', label: '10-12 м 🔵' },
-                  { range: '12-15 м', color: '#0040CC', label: '12-15 м 🔵' },
-                  { range: '15+ м', color: '#0000CC', label: '15+ м (глубоко) 🔷' }
-                ];
-                
-                legendHtml += '<div style="max-height: 200px; overflow-y: auto; margin-top: 4px;">';
-                depthRanges.forEach(({ range, color, label }) => {
-                  legendHtml += `<div style="margin: 2px 0; font-size: 10px;">`;
-                  legendHtml += `<span style="background:${color}; width:16px; height:12px; display:inline-block; margin-right:6px; border:1px solid #333; border-radius:2px; vertical-align:middle;"></span>`;
-                  legendHtml += `<span style="vertical-align:middle;">${label}</span>`;
-                  legendHtml += `</div>`;
-                });
-                legendHtml += '</div>';
-                
-                legendHtml += '<div style="margin-top: 8px; font-size: 9px; color: #888; font-style: italic; border-top: 1px solid #ddd; padding-top: 6px;">Изолинии (изобаты) глубин</div>';
-                
-                div.innerHTML = legendHtml;
-                return div;
-              };
-              
-              if (map && map.getContainer()) {
-                legend.addTo(map);
-              }
-            }
-          } catch (addError) {
-            console.error('Ошибка при добавлении изолиний:', addError);
-          }
-        }, 50);
-        
-        // Загружаем исходные точки для heatmap, если включено
-        if (USE_HEATMAP && depthsFileUrl) {
-          console.log('Загрузка исходных точек для heatmap...');
-          fetch(depthsFileUrl)
-            .then(res => {
-              if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-              return res.text().then(text => {
-                const trimmedText = text.trim();
-                if (trimmedText.startsWith('<!DOCTYPE') || trimmedText.startsWith('<html') || trimmedText.startsWith('<HTML')) {
-                  throw new Error('Получен HTML вместо JSON');
-                }
-                return JSON.parse(text);
-              });
-            })
-            .then(pointsData => {
-              console.log(`Загружено ${pointsData.features.length} точек для heatmap`);
-              createHeatmapFromPoints(pointsData, map);
-            })
-            .catch(err => {
-              console.warn('Не удалось загрузить точки для heatmap:', err);
-            });
-        }
-        
-        return; // Выходим, так как изолинии уже загружены
+      } catch (addError) {
+        console.warn('Не удалось добавить индикатор загрузки:', addError);
       }
       
-      // Если не используются готовые изолинии, создаем их на лету (старый код)
-      console.log(`Загружено ${data.features.length} точек глубин`);
-      
-      // Подготавливаем данные для создания изолиний
-        // Фильтруем и ограничиваем количество точек для производительности
-        const maxPoints = 50000; // Меньше точек для изолиний, так как они требуют больше вычислений
-        const filteredFeatures = [];
-        const sampleRate = Math.max(1, Math.floor(data.features.length / maxPoints));
-        
-        // Функция для интерполяции значения на сетке (IDW - Inverse Distance Weighting)
-        function interpolateValue(gridX, gridY, points, power = 2) {
-          let sumWeight = 0;
-          let sumValue = 0;
-          let closestDistance = Infinity;
-          let closestValue = 0;
-          
-          for (let i = 0; i < points.length; i++) {
-            const point = points[i];
-            const [lon, lat] = point.geometry.coordinates;
-            const depth = point.properties.depth;
-            
-            const dx = gridX - lon;
-            const dy = gridY - lat;
-            const distance = Math.sqrt(dx * dx + dy * dy);
-            
-            // Сохраняем ближайшую точку на случай, если все точки далеко
-            if (distance < closestDistance) {
-              closestDistance = distance;
-              closestValue = depth;
-            }
-            
-            if (distance < 0.0001) {
-              // Если точка очень близко, возвращаем её значение сразу
-              return depth;
-            }
-            
-            const weight = 1 / Math.pow(distance, power);
-            sumWeight += weight;
-            sumValue += weight * depth;
-          }
-          
-          // Если все точки далеко, используем значение ближайшей точки
-          if (sumWeight === 0 || closestDistance > 0.01) {
-            return closestValue;
-          }
-          
-          return sumValue / sumWeight;
-        }
-        
-        // Функция для создания полигонов цветовых зон
-        function createDepthZones(grid, contourLevels, depthColors) {
-          const zones = [];
-          const rows = grid.length;
-          const cols = grid[0].length;
-          
-          // Создаем полигоны для каждой зоны между изолиниями
-          for (let levelIndex = 0; levelIndex < contourLevels.length - 1; levelIndex++) {
-            const lower = contourLevels[levelIndex];
-            const upper = contourLevels[levelIndex + 1];
-            const color = depthColors[lower];
-            
-            // Находим все ячейки сетки, которые попадают в этот диапазон
-            const zoneCells = [];
-            for (let i = 0; i < rows - 1; i++) {
-              for (let j = 0; j < cols - 1; j++) {
-                const value = grid[i][j];
-                if (value >= lower && value < upper) {
-                  zoneCells.push({ row: i, col: j, value: value });
-                }
-              }
-            }
-            
-            // Группируем соседние ячейки в полигоны
-            if (zoneCells.length > 0) {
-              // Создаем простые квадратные полигоны для каждой ячейки
-              zoneCells.forEach(cell => {
-                // Получаем координаты углов ячейки из сетки
-                // Это упрощенный подход - в реальности нужно использовать координаты сетки
-                const polygon = {
-                  type: 'Feature',
-                  geometry: {
-                    type: 'Polygon',
-                    coordinates: [[
-                      [cell.col * 0.001, cell.row * 0.001],
-                      [(cell.col + 1) * 0.001, cell.row * 0.001],
-                      [(cell.col + 1) * 0.001, (cell.row + 1) * 0.001],
-                      [cell.col * 0.001, (cell.row + 1) * 0.001],
-                      [cell.col * 0.001, cell.row * 0.001]
-                    ]]
-                  },
-                  properties: {
-                    depthRange: `${lower}-${upper}м`,
-                    fill: color,
-                    fillOpacity: 0.6,
-                    stroke: color,
-                    strokeWidth: 0.5
-                  }
-                };
-                zones.push(polygon);
-              });
-            }
-          }
-          
-          return zones;
-        }
-        
-        // Функция для создания изолиний (упрощенный алгоритм)
-        function createContours(grid, level, bbox, cellSize) {
-          const contours = [];
-          const rows = grid.length;
-          const cols = grid[0].length;
-          
-          // Простой алгоритм построения изолиний на основе сетки
-          // Используем алгоритм marching squares для построения контуров
-          for (let i = 0; i < rows - 1; i++) {
-            for (let j = 0; j < cols - 1; j++) {
-              const corners = [
-                grid[i][j],
-                grid[i][j + 1],
-                grid[i + 1][j + 1],
-                grid[i + 1][j]
-              ];
-              
-              // Проверяем, пересекает ли изолиния этот квадрат
-              const above = corners.map(v => v >= level);
-              const below = corners.map(v => v < level);
-              
-              if (above.some(v => v) && below.some(v => v)) {
-                // Изолиния пересекает этот квадрат
-                // Создаем простой сегмент линии
-                const lon = bbox[0] + j * cellSize;
-                const lat = bbox[1] + i * cellSize;
-                
-                const contour = {
-                  type: 'Feature',
-                  geometry: {
-                    type: 'LineString',
-                    coordinates: [
-                      [lon, lat],
-                      [lon + cellSize, lat],
-                      [lon + cellSize, lat + cellSize],
-                      [lon, lat + cellSize],
-                      [lon, lat]
-                    ]
-                  },
-                  properties: {
-                    depth: level,
-                    stroke: '#333',
-                    strokeWidth: (level % 2.5 === 0 || level === 0) ? 2 : 1,
-                    strokeOpacity: 0.8
-                  }
-                };
-                contours.push(contour);
-              }
-            }
-          }
-          
-          return contours;
-        }
-        
-        // Проверяем, что карта имеет контейнер
-        if (!map || !map.getContainer()) {
-          console.error('Карта не готова для добавления элементов');
-          return;
-        }
-        
-        // Показываем индикатор загрузки - добавляем напрямую в DOM карты
-        let loadingDiv = null;
+      // Создаем heatmap из точек
+      setTimeout(() => {
         try {
-          const mapContainer = map.getContainer();
-          if (mapContainer) {
-            loadingDiv = document.createElement('div');
-            loadingDiv.className = 'loading-message';
-            loadingDiv.style.cssText = 'position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 1000; background: rgba(0, 0, 0, 0.7); color: white; padding: 10px; border-radius: 5px; font-size: 12px; text-align: center; pointer-events: none;';
-            loadingDiv.innerHTML = '⏳ Обработка данных для изолиний...';
-            mapContainer.appendChild(loadingDiv);
+          createHeatmapFromPoints(data, map);
+          
+          // Удаляем индикатор загрузки
+          try {
+            if (loadingDiv && loadingDiv.parentNode) {
+              loadingDiv.parentNode.removeChild(loadingDiv);
+            }
+          } catch (e) {
+            // Игнорируем ошибку удаления
+          }
+          
+          // Добавляем легенду для heatmap
+          const legend = L.control({ position: 'bottomright' });
+          legend.onAdd = () => {
+            const div = L.DomUtil.create('div', 'legend');
+            div.style.cssText = 'background: rgba(255, 255, 255, 0.95); padding: 12px; border-radius: 6px; font-size: 11px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); max-width: 200px;';
+            
+            let legendHtml = '<div style="font-weight: bold; margin-bottom: 8px; font-size: 12px;">Интенсивность Heatmap:</div>';
+            legendHtml += '<div style="margin-top: 4px;">';
+            legendHtml += '<div style="margin: 2px 0; font-size: 10px;">';
+            legendHtml += '<span style="background:linear-gradient(to right, blue, cyan, yellow, orange, red); width:100%; height:12px; display:block; border:1px solid #333; border-radius:2px; margin-bottom: 4px;"></span>';
+            legendHtml += '<div style="display: flex; justify-content: space-between; font-size: 9px; color: #666;">';
+            legendHtml += '<span>Глубоко (15м+)</span><span>Мелко (0м)</span>';
+            legendHtml += '</div>';
+            legendHtml += '</div>';
+            legendHtml += '</div>';
+            legendHtml += '<div style="margin-top: 8px; font-size: 9px; color: #888; font-style: italic; border-top: 1px solid #ddd; padding-top: 6px;">Heatmap глубин</div>';
+            
+            div.innerHTML = legendHtml;
+            return div;
+          };
+          
+          if (map && map.getContainer()) {
+            legend.addTo(map);
           }
         } catch (addError) {
-          console.warn('Не удалось добавить индикатор загрузки:', addError);
-        }
-      
-        // Обрабатываем данные батчами для неблокирующей обработки
-        let processedCount = 0;
-        const batchSize = 5000;
-        const totalFeatures = Math.min(data.features.length, maxPoints * sampleRate);
-        
-        function processBatch() {
-          const end = Math.min(processedCount + batchSize, totalFeatures);
-          
-          for (let i = processedCount; i < end; i++) {
-            // Применяем сэмплирование
-            if (i % sampleRate !== 0) continue;
-            
-            const feature = data.features[i];
-        const [lon, lat] = feature.geometry.coordinates;
-        const depth = feature.properties.depth;
-
-            if (typeof depth !== 'number' || isNaN(depth)) continue;
-            if (typeof lat !== 'number' || typeof lon !== 'number') continue;
-            
-            // Ограничиваем глубину до 15 метров и округляем
-            const clampedDepth = Math.min(Math.max(depth, 0), 15);
-            
-            // Добавляем точку в формате для Turf.js
-            filteredFeatures.push({
-              type: 'Feature',
-              geometry: {
-                type: 'Point',
-                coordinates: [lon, lat]
-              },
-              properties: {
-                depth: clampedDepth
-              }
-            });
-          }
-          
-          processedCount = end;
-          
-          // Обновляем индикатор
-          const loadingElement = document.querySelector('.loading-message');
-          if (loadingElement) {
-            loadingElement.innerHTML = `⏳ Обработка данных... ${Math.round((processedCount / totalFeatures) * 100)}%`;
-          }
-          
-          if (processedCount < totalFeatures) {
-            // Используем requestAnimationFrame для неблокирующей обработки
-            requestAnimationFrame(processBatch);
-          } else {
-            // Все данные обработаны, создаем изолинии
-            console.log(`Обработано ${filteredFeatures.length} точек для изолиний`);
-            
-            // Обновляем индикатор
-            if (loadingElement) {
-              loadingElement.innerHTML = '⏳ Создание изолиний...';
+          console.error('Ошибка при создании heatmap:', addError);
+          // Удаляем индикатор загрузки при ошибке
+          try {
+            if (loadingDiv && loadingDiv.parentNode) {
+              loadingDiv.parentNode.removeChild(loadingDiv);
             }
-            
-            // Используем setTimeout для неблокирующей обработки
-            setTimeout(() => {
-              try {
-                // Определяем границы области данных
-                let minLon = Infinity, maxLon = -Infinity;
-                let minLat = Infinity, maxLat = -Infinity;
-                
-                filteredFeatures.forEach(feature => {
-                  const [lon, lat] = feature.geometry.coordinates;
-                  minLon = Math.min(minLon, lon);
-                  maxLon = Math.max(maxLon, lon);
-                  minLat = Math.min(minLat, lat);
-                  maxLat = Math.max(maxLat, lat);
-                });
-                
-                const cellSize = 0.001; // Размер ячейки сетки в градусах (~100м)
-                const gridCols = Math.ceil((maxLon - minLon) / cellSize) + 1;
-                const gridRows = Math.ceil((maxLat - minLat) / cellSize) + 1;
-                
-                // Определяем уровни изолиний (изобаты) в метрах
-                const contourLevels = [0, 1, 2, 3, 4, 5, 6, 7.5, 9, 10, 12, 15];
-                
-                // Цвета для зон между изолиниями (от мелкого к глубокому)
-                const depthColors = {
-                  0: '#FF0000',      // 0-1м - красный (мелко)
-                  1: '#FF8000',      // 1-2м - оранжевый
-                  2: '#FFFF00',      // 2-3м - желтый
-                  3: '#CCFF00',      // 3-4м - желто-зеленый
-                  4: '#80FF00',      // 4-5м - зеленый
-                  5: '#40FF80',      // 5-6м - зелено-голубой
-                  6: '#00FFCC',      // 6-7.5м - голубой
-                  7.5: '#00CCFF',    // 7.5-9м - светло-синий
-                  9: '#0080FF',      // 9-10м - синий
-                  10: '#0066CC',     // 10-12м - темно-синий
-                  12: '#0040CC',     // 12-15м - очень темно-синий
-                  15: '#0000CC'      // 15м+ - самый темный синий
-                };
-                
-                // Обновляем индикатор
-                if (loadingElement) {
-                  loadingElement.innerHTML = '⏳ Создание сетки и интерполяция...';
-                }
-                
-                // Создаем регулярную сетку и интерполируем значения
-                const grid = [];
-                for (let i = 0; i < gridRows; i++) {
-                  grid[i] = [];
-                  for (let j = 0; j < gridCols; j++) {
-                    const lon = minLon + j * cellSize;
-                    const lat = minLat + i * cellSize;
-                    const depth = interpolateValue(lon, lat, filteredFeatures, 2);
-                    grid[i][j] = depth;
-                  }
-                  
-                  // Обновляем прогресс
-                  if (i % 10 === 0 && loadingElement) {
-                    loadingElement.innerHTML = `⏳ Создание сетки... ${Math.round((i / gridRows) * 50)}%`;
-                  }
-                }
-                
-                // Обновляем индикатор
-                if (loadingElement) {
-                  loadingElement.innerHTML = '⏳ Создание цветовых зон...';
-                }
-                
-                // Создаем цветовые зоны (изобанды)
-                const isobands = [];
-                for (let levelIndex = 0; levelIndex < contourLevels.length - 1; levelIndex++) {
-                  const lower = contourLevels[levelIndex];
-                  const upper = contourLevels[levelIndex + 1];
-                  const color = depthColors[lower];
-                  
-                  // Находим все ячейки сетки в этом диапазоне и создаем полигоны
-                  for (let i = 0; i < gridRows - 1; i++) {
-                    for (let j = 0; j < gridCols - 1; j++) {
-                      const depth = grid[i][j];
-                      if (depth >= lower && depth < upper) {
-                        const lon = minLon + j * cellSize;
-                        const lat = minLat + i * cellSize;
-                        
-                        const polygon = {
-                          type: 'Feature',
-                          geometry: {
-                            type: 'Polygon',
-                            coordinates: [[
-                              [lon, lat],
-                              [lon + cellSize, lat],
-                              [lon + cellSize, lat + cellSize],
-                              [lon, lat + cellSize],
-                              [lon, lat]
-                            ]]
-                          },
-                          properties: {
-                            depthRange: `${lower}-${upper}м`,
-                            fill: color,
-                            fillOpacity: 0.6,
-                            stroke: color,
-                            strokeWidth: 0.5,
-                            strokeOpacity: 0.5
-                          }
-                        };
-                        isobands.push(polygon);
-                      }
-                    }
-                  }
-                }
-                
-                // Обновляем индикатор
-                if (loadingElement) {
-                  loadingElement.innerHTML = '⏳ Создание изолиний...';
-                }
-                
-                // Создаем изолинии (линии одинаковой глубины)
-                const contours = [];
-                contourLevels.forEach(level => {
-                  // Создаем линии для каждого уровня
-                  for (let i = 0; i < gridRows - 1; i++) {
-                    for (let j = 0; j < gridCols - 1; j++) {
-                      const corners = [
-                        grid[i][j],
-                        grid[i][j + 1],
-                        grid[i + 1][j + 1],
-                        grid[i + 1][j]
-                      ];
-                      
-                      // Проверяем, пересекает ли изолиния этот квадрат
-                      const hasAbove = corners.some(v => v >= level);
-                      const hasBelow = corners.some(v => v < level);
-                      
-                      if (hasAbove && hasBelow) {
-                        // Упрощенный алгоритм: создаем линию по границе квадрата
-                        const lon = minLon + j * cellSize;
-                        const lat = minLat + i * cellSize;
-                        
-                        // Определяем, какие стороны пересекает изолиния
-                        const lineCoords = [];
-                        
-                        // Верхняя сторона
-                        if ((corners[0] >= level) !== (corners[1] >= level)) {
-                          const t = (level - corners[0]) / (corners[1] - corners[0]);
-                          lineCoords.push([lon + t * cellSize, lat]);
-                        }
-                        
-                        // Правая сторона
-                        if ((corners[1] >= level) !== (corners[2] >= level)) {
-                          const t = (level - corners[1]) / (corners[2] - corners[1]);
-                          lineCoords.push([lon + cellSize, lat + t * cellSize]);
-                        }
-                        
-                        // Нижняя сторона
-                        if ((corners[2] >= level) !== (corners[3] >= level)) {
-                          const t = (level - corners[2]) / (corners[3] - corners[2]);
-                          lineCoords.push([lon + (1 - t) * cellSize, lat + cellSize]);
-                        }
-                        
-                        // Левая сторона
-                        if ((corners[3] >= level) !== (corners[0] >= level)) {
-                          const t = (level - corners[3]) / (corners[0] - corners[3]);
-                          lineCoords.push([lon, lat + (1 - t) * cellSize]);
-                        }
-                        
-                        // Если есть точки пересечения, создаем линию
-                        if (lineCoords.length >= 2) {
-                          // Замыкаем линию, если нужно
-                          if (lineCoords.length === 2) {
-                            lineCoords.push(lineCoords[0]);
-                          }
-                          
-                          const contour = {
-                            type: 'Feature',
-                            geometry: {
-                              type: 'LineString',
-                              coordinates: lineCoords
-                            },
-                            properties: {
-                              depth: level,
-                              stroke: '#333',
-                              strokeWidth: (level % 2.5 === 0 || level === 0) ? 2 : 1,
-                              strokeOpacity: 0.8
-                            }
-                          };
-                          contours.push(contour);
-                        }
-                      }
-                    }
-                  }
-                });
-                
-                console.log(`Создано ${isobands.length} цветовых зон и ${contours.length} изолиний`);
-                
-                // Удаляем индикатор загрузки
-                try {
-                  if (loadingDiv && loadingDiv.parentNode) {
-                    loadingDiv.parentNode.removeChild(loadingDiv);
-                  }
-                } catch (e) {
-                  // Игнорируем ошибку удаления
-                }
-                
-                // Проверяем, что карта инициализирована и имеет контейнер
-                if (!map || !map.getContainer()) {
-                  console.error('Карта не инициализирована, невозможно добавить изолинии');
-                  return;
-                }
-                
-                // Используем setTimeout для гарантии готовности карты
-                setTimeout(() => {
-                  try {
-                    // Создаем группу слоев для изобанд (цветовые зоны)
-                    const isobandsCollection = {
-                      type: 'FeatureCollection',
-                      features: isobands
-                    };
-                    const isobandsLayer = L.geoJSON(isobandsCollection, {
-                      style: (feature) => ({
-                        fillColor: feature.properties.fill || '#888',
-                        fillOpacity: feature.properties.fillOpacity || 0.6,
-                        color: feature.properties.stroke || '#333',
-                        weight: feature.properties.strokeWidth || 0.5,
-                        opacity: feature.properties.strokeOpacity || 0.5
-                      }),
-                      onEachFeature: (feature, layer) => {
-                        const depthRange = feature.properties.depthRange || 'неизвестно';
-                        layer.bindTooltip(`${depthRange}`, { permanent: false, direction: 'center' });
-                      }
-                    });
-                    
-                    // Создаем группу слоев для изолиний (линии)
-                    const contoursCollection = {
-                      type: 'FeatureCollection',
-                      features: contours
-                    };
-                    const contoursLayer = L.geoJSON(contoursCollection, {
-                      style: (feature) => ({
-                        color: feature.properties.stroke || '#333',
-                        weight: feature.properties.strokeWidth || 1,
-                        opacity: feature.properties.strokeOpacity || 0.8,
-                        fill: false
-                      }),
-                      onEachFeature: (feature, layer) => {
-                        const depth = feature.properties.depth || 'неизвестно';
-                        layer.bindTooltip(`${depth} м`, { permanent: false, direction: 'center' });
-                      }
-                    });
-                    
-                    if (map && map.getContainer()) {
-                      // Добавляем сначала цветовые зоны, затем изолинии поверх
-                      isobandsLayer.addTo(map);
-                      contoursLayer.addTo(map);
-      
-                      console.log(`Изолинии созданы: ${isobands.length} зон, ${contours.length} линий`);
-                      
-                      // Сохраняем ссылки на слои
-                      window.depthsIsobands = isobandsLayer;
-                      window.depthsContours = contoursLayer;
-                      
-                      // Создаем heatmap из исходных точек, если включено
-                      if (USE_HEATMAP && data) {
-                        setTimeout(() => {
-                          createHeatmapFromPoints(data, map);
-                        }, 100);
-                      }
-
-                      // Легенда глубин для изолиний
-      const legend = L.control({ position: 'bottomright' });
-      legend.onAdd = () => {
-        const div = L.DomUtil.create('div', 'legend');
-        div.style.cssText = 'background: rgba(255, 255, 255, 0.95); padding: 12px; border-radius: 6px; font-size: 11px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); max-width: 200px;';
-        
-                        let legendHtml = '<div style="font-weight: bold; margin-bottom: 8px; font-size: 12px;">Глубина (м):</div>';
-                        
-                        // Добавляем примеры цветов для зон глубин
-                        const depthRanges = [
-                          { range: '0-1 м', color: '#FF0000', label: '0-1 м (мелко) 🔴' },
-                          { range: '1-2 м', color: '#FF8000', label: '1-2 м 🟠' },
-                          { range: '2-3 м', color: '#FFFF00', label: '2-3 м 🟡' },
-                          { range: '3-4 м', color: '#CCFF00', label: '3-4 м 🟢' },
-                          { range: '4-5 м', color: '#80FF00', label: '4-5 м 🟢' },
-                          { range: '5-6 м', color: '#40FF80', label: '5-6 м 🔵' },
-                          { range: '6-7.5 м', color: '#00FFCC', label: '6-7.5 м 🔵' },
-                          { range: '7.5-9 м', color: '#00CCFF', label: '7.5-9 м 🔵' },
-                          { range: '9-10 м', color: '#0080FF', label: '9-10 м 🔵' },
-                          { range: '10-12 м', color: '#0066CC', label: '10-12 м 🔵' },
-                          { range: '12-15 м', color: '#0040CC', label: '12-15 м 🔵' },
-                          { range: '15+ м', color: '#0000CC', label: '15+ м (глубоко) 🔷' }
-                        ];
-                        
-                        legendHtml += '<div style="max-height: 200px; overflow-y: auto; margin-top: 4px;">';
-                        depthRanges.forEach(({ range, color, label }) => {
-                          legendHtml += `<div style="margin: 2px 0; font-size: 10px;">`;
-                          legendHtml += `<span style="background:${color}; width:16px; height:12px; display:inline-block; margin-right:6px; border:1px solid #333; border-radius:2px; vertical-align:middle;"></span>`;
-                          legendHtml += `<span style="vertical-align:middle;">${label}</span>`;
-                          legendHtml += `</div>`;
-                        });
-                        legendHtml += '</div>';
-                        
-                        legendHtml += '<div style="margin-top: 8px; font-size: 9px; color: #888; font-style: italic; border-top: 1px solid #ddd; padding-top: 6px;">Изолинии (изобаты) глубин</div>';
-        
-                        div.innerHTML = legendHtml;
-        return div;
-      };
-                      
-                      if (map && map.getContainer()) {
-      legend.addTo(map);
-                      }
-                    }
-                  } catch (addError) {
-                    console.error('Ошибка при добавлении изолиний или легенды:', addError);
-                  }
-                }, 50);
-              } catch (processingError) {
-                console.error('Ошибка при создании изолиний:', processingError);
-                // Удаляем индикатор загрузки при ошибке
-                try {
-                  if (loadingDiv && loadingDiv.parentNode) {
-                    loadingDiv.parentNode.removeChild(loadingDiv);
-                  }
-                } catch (e) {
-                  // Игнорируем ошибку удаления
-                }
-              }
-            }, 100);
+          } catch (e) {
+            // Игнорируем ошибку удаления
           }
         }
-        
-        // Начинаем обработку
-        processBatch();
+      }, 50);
     })
     .catch(err => {
       console.error('Ошибка загрузки глубин:', err);
@@ -1088,236 +345,15 @@ document.addEventListener("DOMContentLoaded", () => {
         })
         .then(data => {
           console.log(`Загружен резервный файл: ${data.features.length} точек`);
-            
-            // Используем ту же логику создания изолиний, что и для основного файла
-            if (typeof turf === 'undefined') {
-              console.error('Turf.js не загружен для резервного файла');
-              return;
-            }
-            
-            // Фильтруем данные
-          const maxPoints = 50000;
-            const filteredFeatures = [];
-            const sampleRate = Math.max(1, Math.floor(data.features.length / maxPoints));
-          
-            data.features.forEach((feature, i) => {
-              if (i % sampleRate !== 0) return;
-            
-            const [lon, lat] = feature.geometry.coordinates;
-            const depth = feature.properties.depth;
-
-            if (typeof depth !== 'number' || isNaN(depth)) return;
-            if (typeof lat !== 'number' || typeof lon !== 'number') return;
-
-              const clampedDepth = Math.min(Math.max(depth, 0), 15);
-              
-              filteredFeatures.push({
-                type: 'Feature',
-                geometry: {
-                  type: 'Point',
-                  coordinates: [lon, lat]
-                },
-                properties: {
-                  depth: clampedDepth
-                }
-              });
-            });
-            
-            if (!map || !map.getContainer()) {
-              console.error('Карта не инициализирована, невозможно добавить изолинии');
-              return;
-            }
-            
-            // Используем setTimeout для гарантии готовности карты
+          if (map && map.getContainer()) {
             setTimeout(() => {
-              try {
-                // Определяем границы области данных
-                let minLon = Infinity, maxLon = -Infinity;
-                let minLat = Infinity, maxLat = -Infinity;
-                
-                filteredFeatures.forEach(feature => {
-                  const [lon, lat] = feature.geometry.coordinates;
-                  minLon = Math.min(minLon, lon);
-                  maxLon = Math.max(maxLon, lon);
-                  minLat = Math.min(minLat, lat);
-                  maxLat = Math.max(maxLat, lat);
-                });
-                
-                const cellSize = 0.001;
-                const gridCols = Math.ceil((maxLon - minLon) / cellSize) + 1;
-                const gridRows = Math.ceil((maxLat - minLat) / cellSize) + 1;
-                const contourLevels = [0, 1, 2, 3, 4, 5, 6, 7.5, 9, 10, 12, 15];
-                
-                const depthColors = {
-                  0: '#FF0000', 1: '#FF8000', 2: '#FFFF00', 3: '#CCFF00', 4: '#80FF00',
-                  5: '#40FF80', 6: '#00FFCC', 7.5: '#00CCFF', 9: '#0080FF',
-                  10: '#0066CC', 12: '#0040CC', 15: '#0000CC'
-                };
-                
-                // Создаем сетку и интерполируем значения
-                const grid = [];
-                for (let i = 0; i < gridRows; i++) {
-                  grid[i] = [];
-                  for (let j = 0; j < gridCols; j++) {
-                    const lon = minLon + j * cellSize;
-                    const lat = minLat + i * cellSize;
-                    const depth = interpolateValue(lon, lat, filteredFeatures, 2);
-                    grid[i][j] = depth;
-                  }
-                }
-                
-                // Создаем цветовые зоны
-                const isobands = [];
-                for (let levelIndex = 0; levelIndex < contourLevels.length - 1; levelIndex++) {
-                  const lower = contourLevels[levelIndex];
-                  const upper = contourLevels[levelIndex + 1];
-                  const color = depthColors[lower];
-                  
-                  for (let i = 0; i < gridRows - 1; i++) {
-                    for (let j = 0; j < gridCols - 1; j++) {
-                      const depth = grid[i][j];
-                      if (depth >= lower && depth < upper) {
-                        const lon = minLon + j * cellSize;
-                        const lat = minLat + i * cellSize;
-                        
-                        isobands.push({
-                          type: 'Feature',
-                          geometry: {
-                            type: 'Polygon',
-                            coordinates: [[
-                              [lon, lat],
-                              [lon + cellSize, lat],
-                              [lon + cellSize, lat + cellSize],
-                              [lon, lat + cellSize],
-                              [lon, lat]
-                            ]]
-                          },
-                          properties: {
-                            depthRange: `${lower}-${upper}м`,
-                            fill: color,
-                            fillOpacity: 0.6,
-                            stroke: color,
-                            strokeWidth: 0.5,
-                            strokeOpacity: 0.5
-                          }
-                        });
-                      }
-                    }
-                  }
-                }
-                
-                // Создаем изолинии
-                const contours = [];
-                contourLevels.forEach(level => {
-                  for (let i = 0; i < gridRows - 1; i++) {
-                    for (let j = 0; j < gridCols - 1; j++) {
-                      const corners = [
-                        grid[i][j],
-                        grid[i][j + 1],
-                        grid[i + 1][j + 1],
-                        grid[i + 1][j]
-                      ];
-                      
-                      const hasAbove = corners.some(v => v >= level);
-                      const hasBelow = corners.some(v => v < level);
-                      
-                      if (hasAbove && hasBelow) {
-                        const lon = minLon + j * cellSize;
-                        const lat = minLat + i * cellSize;
-                        const lineCoords = [];
-                        
-                        if ((corners[0] >= level) !== (corners[1] >= level)) {
-                          const t = (level - corners[0]) / (corners[1] - corners[0]);
-                          lineCoords.push([lon + t * cellSize, lat]);
-                        }
-                        if ((corners[1] >= level) !== (corners[2] >= level)) {
-                          const t = (level - corners[1]) / (corners[2] - corners[1]);
-                          lineCoords.push([lon + cellSize, lat + t * cellSize]);
-                        }
-                        if ((corners[2] >= level) !== (corners[3] >= level)) {
-                          const t = (level - corners[2]) / (corners[3] - corners[2]);
-                          lineCoords.push([lon + (1 - t) * cellSize, lat + cellSize]);
-                        }
-                        if ((corners[3] >= level) !== (corners[0] >= level)) {
-                          const t = (level - corners[3]) / (corners[0] - corners[3]);
-                          lineCoords.push([lon, lat + (1 - t) * cellSize]);
-                        }
-                        
-                        if (lineCoords.length >= 2) {
-                          if (lineCoords.length === 2) {
-                            lineCoords.push(lineCoords[0]);
-                          }
-                          
-                          contours.push({
-                            type: 'Feature',
-                            geometry: {
-                              type: 'LineString',
-                              coordinates: lineCoords
-                            },
-                            properties: {
-                              depth: level,
-                              stroke: '#333',
-                              strokeWidth: (level % 2.5 === 0 || level === 0) ? 2 : 1,
-                              strokeOpacity: 0.8
-                            }
-                          });
-                        }
-                      }
-                    }
-                  }
-                });
-                
-                if (map && map.getContainer()) {
-                  const isobandsCollection = {
-                    type: 'FeatureCollection',
-                    features: isobands
-                  };
-                  const isobandsLayer = L.geoJSON(isobandsCollection, {
-                    style: (feature) => ({
-                      fillColor: feature.properties.fill || '#888',
-                      fillOpacity: feature.properties.fillOpacity || 0.6,
-                      color: feature.properties.stroke || '#333',
-                      weight: feature.properties.strokeWidth || 0.5,
-                      opacity: feature.properties.strokeOpacity || 0.5
-                    })
-                  });
-                  
-                  const contoursCollection = {
-                    type: 'FeatureCollection',
-                    features: contours
-                  };
-                  const contoursLayer = L.geoJSON(contoursCollection, {
-                    style: (feature) => ({
-                      color: feature.properties.stroke || '#333',
-                      weight: feature.properties.strokeWidth || 1,
-                      opacity: feature.properties.strokeOpacity || 0.8,
-                      fill: false
-                    })
-                  });
-                  
-                  isobandsLayer.addTo(map);
-                  contoursLayer.addTo(map);
-                  
-                  window.depthsIsobands = isobandsLayer;
-                  window.depthsContours = contoursLayer;
-                  
-                  // Создаем heatmap из исходных точек, если включено
-                  if (USE_HEATMAP && data) {
-                    setTimeout(() => {
-                      createHeatmapFromPoints(data, map);
-                    }, 100);
-                  }
-          
-                  console.log(`Отображено ${filteredFeatures.length} точек из резервного файла в изолиниях`);
-                }
-              } catch (addError) {
-                console.error('Ошибка при добавлении изолиний из резервного файла:', addError);
-              }
-            }, 50);
+              createHeatmapFromPoints(data, map);
+            }, 100);
+          }
         })
         .catch(fallbackErr => {
           console.error('Ошибка загрузки резервного файла:', fallbackErr);
-          });
+        });
         });
     });
 
