@@ -19,10 +19,11 @@
 <body>
   <div id="map"></div>
 
-  <!-- Правильный порядок подключения: Leaflet → Turf.js → Telegram → ваш код -->
+  <!-- Правильный порядок подключения: Leaflet → Leaflet.heat → Turf.js → Telegram → ваш код -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
   <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <script src="map.js?v=5"></script>
+  <script src="map.js?v=6"></script>
 </body>
 </html>

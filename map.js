@@ -34,6 +34,20 @@ document.addEventListener("DOMContentLoaded", () => {
   // Использовать готовые изолинии (рекомендуется) или создавать на лету
   const USE_PRECOMPUTED_CONTOURS = true;
   
+  // Отображать точки через heatmap (для уменьшения нагрузки)
+  const USE_HEATMAP = true;
+  const HEATMAP_MAX_POINTS = 100000; // Максимальное количество точек для heatmap
+  const HEATMAP_RADIUS = 15; // Радиус точки в пикселях
+  const HEATMAP_BLUR = 20; // Размытие в пикселях
+  const HEATMAP_MAX_ZOOM = 18; // Максимальный зум для heatmap
+  const HEATMAP_GRADIENT = {
+    0.0: 'blue',    // Глубокие места - синий
+    0.3: 'cyan',    // Средние глубины - голубой
+    0.6: 'yellow',  // Мелководье - желтый
+    0.8: 'orange',  // Очень мелко - оранжевый
+    1.0: 'red'      // Очень мелко - красный
+  };
+  
   // Определяем, какой источник использовать (приоритет: GitHub Releases > Direct URL > Google Drive > Local)
   const USE_LOCAL_FILE = !GITHUB_RELEASES_URL && !DIRECT_FILE_URL && !GOOGLE_DRIVE_FILE_ID && !GOOGLE_DRIVE_DIRECT_URL;
 
@@ -125,6 +139,68 @@ document.addEventListener("DOMContentLoaded", () => {
         maximumAge: 0
       }
     );
+  }
+
+  // Функция для создания heatmap из точек
+  function createHeatmapFromPoints(data, mapInstance) {
+    if (!data || !data.features || data.features.length === 0) {
+      console.warn('Нет данных для создания heatmap');
+      return;
+    }
+    
+    if (typeof L.heatLayer === 'undefined') {
+      console.warn('leaflet.heat не загружен, heatmap недоступен');
+      return;
+    }
+    
+    console.log('Создание heatmap из точек...');
+    
+    // Подготавливаем точки для heatmap
+    const heatPoints = [];
+    const maxPoints = Math.min(data.features.length, HEATMAP_MAX_POINTS);
+    const sampleRate = Math.max(1, Math.floor(data.features.length / maxPoints));
+    
+    let processedCount = 0;
+    for (let i = 0; i < data.features.length && processedCount < maxPoints; i++) {
+      if (i % sampleRate !== 0) continue;
+      
+      const feature = data.features[i];
+      if (feature.geometry.type !== 'Point') continue;
+      
+      const [lon, lat] = feature.geometry.coordinates;
+      const depth = feature.properties.depth;
+      
+      if (typeof depth !== 'number' || isNaN(depth)) continue;
+      if (typeof lat !== 'number' || typeof lon !== 'number') continue;
+      
+      // Нормализуем глубину от 0 до 1 для интенсивности heatmap
+      // Инвертируем: мелкие места (0м) = высокая интенсивность (1.0), глубокие (15м+) = низкая (0.1)
+      const normalizedDepth = Math.min(Math.max(depth, 0), 15);
+      const intensity = 1.0 - (normalizedDepth / 15) * 0.9; // От 1.0 до 0.1
+      
+      // Формат для leaflet.heat: [lat, lon, intensity]
+      heatPoints.push([lat, lon, intensity]);
+      processedCount++;
+    }
+    
+    console.log(`Создано ${heatPoints.length} точек для heatmap`);
+    
+    // Создаем heatmap слой
+    const heatLayer = L.heatLayer(heatPoints, {
+      radius: HEATMAP_RADIUS,
+      blur: HEATMAP_BLUR,
+      maxZoom: HEATMAP_MAX_ZOOM,
+      gradient: HEATMAP_GRADIENT,
+      max: 1.0, // Максимальная интенсивность
+      minOpacity: 0.3 // Минимальная прозрачность
+    });
+    
+    // Добавляем heatmap на карту
+    if (mapInstance && mapInstance.getContainer()) {
+      heatLayer.addTo(mapInstance);
+      window.depthsHeatmap = heatLayer; // Сохраняем ссылку для управления
+      console.log('✅ Heatmap добавлен на карту');
+    }
   }
 
   // Функция получения цвета по глубине (30 градаций от 0 до 15 метров)
@@ -379,6 +455,29 @@ document.addEventListener("DOMContentLoaded", () => {
             console.error('Ошибка при добавлении изолиний:', addError);
           }
         }, 50);
+        
+        // Загружаем исходные точки для heatmap, если включено
+        if (USE_HEATMAP && depthsFileUrl) {
+          console.log('Загрузка исходных точек для heatmap...');
+          fetch(depthsFileUrl)
+            .then(res => {
+              if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+              return res.text().then(text => {
+                const trimmedText = text.trim();
+                if (trimmedText.startsWith('<!DOCTYPE') || trimmedText.startsWith('<html') || trimmedText.startsWith('<HTML')) {
+                  throw new Error('Получен HTML вместо JSON');
+                }
+                return JSON.parse(text);
+              });
+            })
+            .then(pointsData => {
+              console.log(`Загружено ${pointsData.features.length} точек для heatmap`);
+              createHeatmapFromPoints(pointsData, map);
+            })
+            .catch(err => {
+              console.warn('Не удалось загрузить точки для heatmap:', err);
+            });
+        }
         
         return; // Выходим, так как изолинии уже загружены
       }
@@ -868,13 +967,20 @@ document.addEventListener("DOMContentLoaded", () => {
                       // Добавляем сначала цветовые зоны, затем изолинии поверх
                       isobandsLayer.addTo(map);
                       contoursLayer.addTo(map);
-                      
+      
                       console.log(`Изолинии созданы: ${isobands.length} зон, ${contours.length} линий`);
                       
                       // Сохраняем ссылки на слои
                       window.depthsIsobands = isobandsLayer;
                       window.depthsContours = contoursLayer;
                       
+                      // Создаем heatmap из исходных точек, если включено
+                      if (USE_HEATMAP && data) {
+                        setTimeout(() => {
+                          createHeatmapFromPoints(data, map);
+                        }, 100);
+                      }
+
                       // Легенда глубин для изолиний
       const legend = L.control({ position: 'bottomright' });
       legend.onAdd = () => {
@@ -909,7 +1015,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         legendHtml += '</div>';
                         
                         legendHtml += '<div style="margin-top: 8px; font-size: 9px; color: #888; font-style: italic; border-top: 1px solid #ddd; padding-top: 6px;">Изолинии (изобаты) глубин</div>';
-                        
+        
                         div.innerHTML = legendHtml;
         return div;
       };
@@ -1195,6 +1301,13 @@ document.addEventListener("DOMContentLoaded", () => {
                   window.depthsIsobands = isobandsLayer;
                   window.depthsContours = contoursLayer;
                   
+                  // Создаем heatmap из исходных точек, если включено
+                  if (USE_HEATMAP && data) {
+                    setTimeout(() => {
+                      createHeatmapFromPoints(data, map);
+                    }, 100);
+                  }
+          
                   console.log(`Отображено ${filteredFeatures.length} точек из резервного файла в изолиниях`);
                 }
               } catch (addError) {
