@@ -25,6 +25,10 @@ document.addEventListener("DOMContentLoaded", () => {
   // Локальный файл с точками (резервный вариант, если Yandex Cloud недоступен)
   const LOCAL_FILE_URL = 'all_depths_small.geojson';
   
+  // URL файла с контурами глубин (GeoJSON)
+  // Замените на реальный URL после экспорта из ноутбука
+  const CONTOURS_FILE_URL = 'https://storage.yandexcloud.net/depths-map/lake_garmin_contours.geojson'; // Локальный файл или URL
+  
   // Параметры heatmap
   const HEATMAP_MAX_POINTS = 100000; // Максимальное количество точек для heatmap
   const HEATMAP_RADIUS = 15; // Радиус точки в пикселях
@@ -129,6 +133,116 @@ document.addEventListener("DOMContentLoaded", () => {
         maximumAge: 0
       }
     );
+  }
+
+  // Функция для получения цвета по глубине (от желтого до темно-синего)
+  function getDepthColor(depth) {
+    // Градиент от желтого (#FFFF00) до темно-синего (#00008B)
+    const colors = [
+      { depth: 0, color: '#FFFF00' },    // Желтый
+      { depth: 2, color: '#FFD700' },     // Золотой
+      { depth: 4, color: '#FFA500' },    // Оранжевый
+      { depth: 6, color: '#FF8C00' },    // Темно-оранжевый
+      { depth: 8, color: '#4169E1' },    // Королевский синий
+      { depth: 12, color: '#0000CD' },    // Средний синий
+      { depth: 20, color: '#00008B' }    // Темно-синий
+    ];
+    
+    // Находим два ближайших цвета
+    let color1 = colors[0];
+    let color2 = colors[colors.length - 1];
+    
+    for (let i = 0; i < colors.length - 1; i++) {
+      if (depth >= colors[i].depth && depth <= colors[i + 1].depth) {
+        color1 = colors[i];
+        color2 = colors[i + 1];
+        break;
+      }
+    }
+    
+    // Интерполируем между цветами
+    const ratio = (depth - color1.depth) / (color2.depth - color1.depth);
+    const r1 = parseInt(color1.color.slice(1, 3), 16);
+    const g1 = parseInt(color1.color.slice(3, 5), 16);
+    const b1 = parseInt(color1.color.slice(5, 7), 16);
+    const r2 = parseInt(color2.color.slice(1, 3), 16);
+    const g2 = parseInt(color2.color.slice(3, 5), 16);
+    const b2 = parseInt(color2.color.slice(5, 7), 16);
+    
+    const r = Math.round(r1 + (r2 - r1) * ratio);
+    const g = Math.round(g1 + (g2 - g1) * ratio);
+    const b = Math.round(b1 + (b2 - b1) * ratio);
+    
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+
+  // Функция для отображения контуров глубин
+  function displayDepthContours(contoursUrl, mapInstance) {
+    if (!contoursUrl) {
+      console.warn('URL контуров не указан');
+      return;
+    }
+    
+    console.log(`Загрузка контуров с URL: ${contoursUrl}`);
+    
+    fetch(contoursUrl)
+      .then(res => {
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
+        return res.text().then(text => {
+          const trimmedText = text.trim();
+          if (trimmedText.startsWith('<!DOCTYPE') || trimmedText.startsWith('<html')) {
+            throw new Error('Получен HTML вместо JSON');
+          }
+          return JSON.parse(text);
+        });
+      })
+      .then(geojson => {
+        console.log(`Загружено ${geojson.features.length} контуров`);
+        
+        // Создаем стиль для каждого контура на основе глубины
+        const styleFunction = (feature) => {
+          const avgDepth = feature.properties.depth_avg || feature.properties.depth_min || 0;
+          const color = getDepthColor(avgDepth);
+          
+          return {
+            fillColor: color,
+            fillOpacity: 0.6,
+            color: color,
+            weight: 1,
+            opacity: 0.8
+          };
+        };
+        
+        // Создаем GeoJSON слой
+        const contoursLayer = L.geoJSON(geojson, {
+          style: styleFunction,
+          onEachFeature: (feature, layer) => {
+            // Добавляем popup с информацией о глубине
+            const props = feature.properties;
+            const popupContent = `
+              <div style="font-size: 12px;">
+                <strong>Глубина:</strong><br>
+                Средняя: ${props.depth_avg} м<br>
+                Мин: ${props.depth_min} м<br>
+                Макс: ${props.depth_max} м
+              </div>
+            `;
+            layer.bindPopup(popupContent);
+          }
+        });
+        
+        // Добавляем слой на карту
+        contoursLayer.addTo(mapInstance);
+        window.depthsContours = contoursLayer; // Сохраняем ссылку для управления
+        
+        console.log('✅ Контуры глубин добавлены на карту');
+      })
+      .catch(err => {
+        console.warn('Ошибка загрузки контуров:', err);
+        console.warn('Продолжаем работу без контуров');
+      });
   }
 
   // Функция для создания heatmap из точек
@@ -257,6 +371,11 @@ document.addEventListener("DOMContentLoaded", () => {
         try {
           createHeatmapFromPoints(data, map);
           
+          // Загружаем и отображаем контуры глубин (если доступны)
+          if (CONTOURS_FILE_URL) {
+            displayDepthContours(CONTOURS_FILE_URL, map);
+          }
+          
           // Удаляем индикатор загрузки
           try {
             if (loadingDiv && loadingDiv.parentNode) {
@@ -266,29 +385,40 @@ document.addEventListener("DOMContentLoaded", () => {
             // Игнорируем ошибку удаления
           }
           
-          // Добавляем легенду для heatmap
-          const legend = L.control({ position: 'bottomright' });
-          legend.onAdd = () => {
-            const div = L.DomUtil.create('div', 'legend');
-            div.style.cssText = 'background: rgba(255, 255, 255, 0.95); padding: 12px; border-radius: 6px; font-size: 11px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); max-width: 200px;';
+          // Добавляем легенду для heatmap и контуров
+      const legend = L.control({ position: 'bottomright' });
+      legend.onAdd = () => {
+        const div = L.DomUtil.create('div', 'legend');
+        div.style.cssText = 'background: rgba(255, 255, 255, 0.95); padding: 12px; border-radius: 6px; font-size: 11px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); max-width: 200px;';
+        
+            let legendHtml = '<div style="font-weight: bold; margin-bottom: 8px; font-size: 12px;">Карта глубин</div>';
             
-            let legendHtml = '<div style="font-weight: bold; margin-bottom: 8px; font-size: 12px;">Интенсивность Heatmap:</div>';
+            // Легенда для контуров (если они загружены)
+            if (window.depthsContours) {
+              legendHtml += '<div style="margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #ddd;">';
+              legendHtml += '<div style="font-size: 10px; margin-bottom: 4px;">Контуры глубин:</div>';
+              legendHtml += '<span style="background:linear-gradient(to right, #FFFF00, #FFD700, #FFA500, #FF8C00, #4169E1, #0000CD, #00008B); width:100%; height:12px; display:block; border:1px solid #333; border-radius:2px; margin-bottom: 4px;"></span>';
+              legendHtml += '<div style="display: flex; justify-content: space-between; font-size: 9px; color: #666;">';
+              legendHtml += '<span>0м</span><span>20м+</span>';
+              legendHtml += '</div>';
+              legendHtml += '</div>';
+            }
+            
+            // Легенда для heatmap
             legendHtml += '<div style="margin-top: 4px;">';
-            legendHtml += '<div style="margin: 2px 0; font-size: 10px;">';
+            legendHtml += '<div style="font-size: 10px; margin-bottom: 4px;">Heatmap:</div>';
             legendHtml += '<span style="background:linear-gradient(to right, blue, cyan, yellow, orange, red); width:100%; height:12px; display:block; border:1px solid #333; border-radius:2px; margin-bottom: 4px;"></span>';
             legendHtml += '<div style="display: flex; justify-content: space-between; font-size: 9px; color: #666;">';
             legendHtml += '<span>Глубоко (15м+)</span><span>Мелко (0м)</span>';
             legendHtml += '</div>';
             legendHtml += '</div>';
-            legendHtml += '</div>';
-            legendHtml += '<div style="margin-top: 8px; font-size: 9px; color: #888; font-style: italic; border-top: 1px solid #ddd; padding-top: 6px;">Heatmap глубин</div>';
             
             div.innerHTML = legendHtml;
-            return div;
-          };
+        return div;
+      };
           
           if (map && map.getContainer()) {
-            legend.addTo(map);
+      legend.addTo(map);
           }
         } catch (addError) {
           console.error('Ошибка при создании heatmap:', addError);
