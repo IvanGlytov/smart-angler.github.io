@@ -27,7 +27,7 @@ document.addEventListener("DOMContentLoaded", () => {
   
   // URL файла с контурами глубин (GeoJSON)
   // Замените на реальный URL после экспорта из ноутбука
-  const CONTOURS_FILE_URL = 'https://storage.yandexcloud.net/depths-map/lake_garmin_contours.geojson'; // Локальный файл или URL
+  const CONTOURS_FILE_URL = 'https://storage.yandexcloud.net/depths-map/lake_garmin_100000_contours.geojson'; // Локальный файл или URL
   
   // Параметры heatmap
   const HEATMAP_MAX_POINTS = 100000; // Максимальное количество точек для heatmap
