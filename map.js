@@ -4,6 +4,8 @@ document.addEventListener("DOMContentLoaded", () => {
     return;
   }
 
+
+  
   Telegram.WebApp.ready();
   Telegram.WebApp.expand();
 
@@ -113,9 +115,24 @@ document.addEventListener("DOMContentLoaded", () => {
   let map = L.map('map').setView([55.75, 37.62], 7);
   
   // Спутниковая карта Esri World Imagery
-  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+  const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
     attribution: '&copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
-  }).addTo(map);
+  });
+  
+  // Обычная карта OpenStreetMap
+  const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap'
+  });
+  
+  // Добавляем спутниковую карту по умолчанию
+  satelliteLayer.addTo(map);
+  
+  // Добавляем переключатель слоев
+  const baseMaps = {
+    "Спутник": satelliteLayer,
+    "Карта": osmLayer
+  };
+  L.control.layers(baseMaps).addTo(map);
 
   // Попытка получить геолокацию пользователя
   if (navigator.geolocation) {
