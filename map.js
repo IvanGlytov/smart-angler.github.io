@@ -238,7 +238,7 @@ document.addEventListener("DOMContentLoaded", () => {
         let minDepth = Infinity;
         let maxDepth = -Infinity;
         geojson.features.forEach(feature => {
-          const depth = feature.properties.depth_avg || feature.properties.depth_min || 0;
+          const depth = feature.properties.depth || feature.properties.depth_avg || 0;
           if (depth < minDepth) minDepth = depth;
           if (depth > maxDepth) maxDepth = depth;
         });
@@ -247,14 +247,14 @@ document.addEventListener("DOMContentLoaded", () => {
         // Создаем стиль для каждого контура на основе реальной глубины
         // Используем абсолютные значения, без нормализации
         const styleFunction = (feature) => {
-          const avgDepth = feature.properties.depth_avg || feature.properties.depth_min || 0;
+          const depth = feature.properties.depth || feature.properties.depth_avg || 0;
           
           // Используем реальную глубину напрямую (без растягивания)
-          const color = getDepthColor(avgDepth);
+          const color = getDepthColor(depth);
           
           // Логируем первые несколько контуров для отладки
           if (geojson.features.indexOf(feature) < 5) {
-            console.log(`Контур ${geojson.features.indexOf(feature)}: глубина=${avgDepth.toFixed(2)}м, цвет=${color}`);
+            console.log(`Контур ${geojson.features.indexOf(feature)}: глубина=${depth.toFixed(2)}м, цвет=${color}`);
           }
           
           return {
@@ -272,12 +272,10 @@ document.addEventListener("DOMContentLoaded", () => {
           onEachFeature: (feature, layer) => {
             // Добавляем popup с информацией о глубине
             const props = feature.properties;
+            const depth = props.depth || props.depth_avg || 0;
             const popupContent = `
               <div style="font-size: 12px;">
-                <strong>Глубина:</strong><br>
-                Средняя: ${props.depth_avg} м<br>
-                Мин: ${props.depth_min} м<br>
-                Макс: ${props.depth_max} м
+                <strong>Глубина:</strong> ${depth.toFixed(2)} м
               </div>
             `;
             layer.bindPopup(popupContent);
