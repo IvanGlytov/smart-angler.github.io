@@ -112,8 +112,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // Инициализация карты с центром по умолчанию (Москва)
   let map = L.map('map').setView([55.75, 37.62], 7);
   
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap'
+  // Спутниковая карта Esri World Imagery
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    attribution: '&copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
   }).addTo(map);
 
   // Попытка получить геолокацию пользователя
@@ -201,18 +202,18 @@ document.addEventListener("DOMContentLoaded", () => {
     console.log(`Загрузка контуров с URL: ${contoursUrl}`);
     
     fetch(contoursUrl)
-      .then(res => {
-        if (!res.ok) {
-          throw new Error(`HTTP error! status: ${res.status}`);
-        }
-        return res.text().then(text => {
-          const trimmedText = text.trim();
+    .then(res => {
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
+      return res.text().then(text => {
+        const trimmedText = text.trim();
           if (trimmedText.startsWith('<!DOCTYPE') || trimmedText.startsWith('<html')) {
             throw new Error('Получен HTML вместо JSON');
           }
           return JSON.parse(text);
-        });
-      })
+      });
+    })
       .then(geojson => {
         console.log(`Загружено ${geojson.features.length} контуров`);
         
@@ -240,11 +241,11 @@ document.addEventListener("DOMContentLoaded", () => {
           }
           
           return {
-            fillColor: color,
+          fillColor: color,
             fillOpacity: 0.6,
-            color: color,
-            weight: 1,
-            opacity: 0.8
+          color: color,
+          weight: 1,
+          opacity: 0.8
           };
         };
         
@@ -271,8 +272,8 @@ document.addEventListener("DOMContentLoaded", () => {
         window.depthsContours = contoursLayer; // Сохраняем ссылку для управления
         
         console.log('✅ Контуры глубин добавлены на карту');
-      })
-      .catch(err => {
+    })
+    .catch(err => {
         console.warn('Ошибка загрузки контуров:', err);
         console.warn('Продолжаем работу без контуров');
       });
@@ -303,10 +304,10 @@ document.addEventListener("DOMContentLoaded", () => {
       
       const feature = data.features[i];
       if (feature.geometry.type !== 'Point') continue;
-      
-      const [lon, lat] = feature.geometry.coordinates;
-      const depth = feature.properties.depth;
-      
+            
+            const [lon, lat] = feature.geometry.coordinates;
+            const depth = feature.properties.depth;
+
       if (typeof depth !== 'number' || isNaN(depth)) continue;
       if (typeof lat !== 'number' || typeof lon !== 'number') continue;
       
