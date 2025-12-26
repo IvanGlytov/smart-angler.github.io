@@ -137,6 +137,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Функция для получения цвета по глубине (от желтого до темно-синего)
   function getDepthColor(depth) {
+    // Нормализуем глубину - ограничиваем диапазон и обрабатываем крайние случаи
+    const normalizedDepth = Math.max(0, Math.min(depth, 20)); // Ограничиваем от 0 до 20м
+    
     // Градиент от желтого (#FFFF00) до темно-синего (#00008B)
     const colors = [
       { depth: 0, color: '#FFFF00' },    // Желтый
@@ -148,12 +151,22 @@ document.addEventListener("DOMContentLoaded", () => {
       { depth: 20, color: '#00008B' }    // Темно-синий
     ];
     
-    // Находим два ближайших цвета
+    // Если глубина больше максимальной, возвращаем темно-синий
+    if (normalizedDepth >= colors[colors.length - 1].depth) {
+      return colors[colors.length - 1].color;
+    }
+    
+    // Если глубина меньше минимальной, возвращаем желтый
+    if (normalizedDepth <= colors[0].depth) {
+      return colors[0].color;
+    }
+    
+    // Находим два ближайших цвета для интерполяции
     let color1 = colors[0];
     let color2 = colors[colors.length - 1];
     
     for (let i = 0; i < colors.length - 1; i++) {
-      if (depth >= colors[i].depth && depth <= colors[i + 1].depth) {
+      if (normalizedDepth >= colors[i].depth && normalizedDepth <= colors[i + 1].depth) {
         color1 = colors[i];
         color2 = colors[i + 1];
         break;
@@ -161,7 +174,9 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     
     // Интерполируем между цветами
-    const ratio = (depth - color1.depth) / (color2.depth - color1.depth);
+    const depthRange = color2.depth - color1.depth;
+    const ratio = depthRange > 0 ? (normalizedDepth - color1.depth) / depthRange : 0;
+    
     const r1 = parseInt(color1.color.slice(1, 3), 16);
     const g1 = parseInt(color1.color.slice(3, 5), 16);
     const b1 = parseInt(color1.color.slice(5, 7), 16);
@@ -201,10 +216,28 @@ document.addEventListener("DOMContentLoaded", () => {
       .then(geojson => {
         console.log(`Загружено ${geojson.features.length} контуров`);
         
-        // Создаем стиль для каждого контура на основе глубины
+        // Находим диапазон глубин для информации
+        let minDepth = Infinity;
+        let maxDepth = -Infinity;
+        geojson.features.forEach(feature => {
+          const depth = feature.properties.depth_avg || feature.properties.depth_min || 0;
+          if (depth < minDepth) minDepth = depth;
+          if (depth > maxDepth) maxDepth = depth;
+        });
+        console.log(`Диапазон глубин: ${minDepth.toFixed(2)}м - ${maxDepth.toFixed(2)}м`);
+        
+        // Создаем стиль для каждого контура на основе реальной глубины
+        // Используем абсолютные значения, без нормализации
         const styleFunction = (feature) => {
           const avgDepth = feature.properties.depth_avg || feature.properties.depth_min || 0;
+          
+          // Используем реальную глубину напрямую (без растягивания)
           const color = getDepthColor(avgDepth);
+          
+          // Логируем первые несколько контуров для отладки
+          if (geojson.features.indexOf(feature) < 5) {
+            console.log(`Контур ${geojson.features.indexOf(feature)}: глубина=${avgDepth.toFixed(2)}м, цвет=${color}`);
+          }
           
           return {
             fillColor: color,
