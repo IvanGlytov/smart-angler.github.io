@@ -307,185 +307,44 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // Загрузка данных глубин
-  console.log(`Загрузка файла глубин с URL: ${depthsFileUrl}`);
-  
-  // Ждем, пока карта полностью инициализируется перед загрузкой данных
+  // Загрузка контуров глубин (heatmap отключен)
+  // Ждем, пока карта полностью инициализируется перед загрузкой контуров
   map.whenReady(() => {
-  fetch(depthsFileUrl)
-    .then(res => {
-      if (!res.ok) {
-        throw new Error(`HTTP error! status: ${res.status}`);
-      }
-      // Получаем текст и парсим вручную для лучшей обработки ошибок
-        // Примечание: не проверяем Content-Type, так как многие серверы хранения файлов
-        // (Yandex Cloud, Google Drive и др.) могут возвращать неправильный Content-Type
-        // для GeoJSON файлов. Вместо этого проверяем содержимое файла.
-      return res.text().then(text => {
-        // Проверяем, не является ли ответ HTML страницей (Google Drive может вернуть HTML для больших файлов)
-        const trimmedText = text.trim();
-        if (trimmedText.startsWith('<!DOCTYPE') || trimmedText.startsWith('<html') || trimmedText.startsWith('<HTML')) {
-            console.error('Получен HTML вместо JSON. Google Drive показывает страницу подтверждения.');
-            console.error('Возможные причины:');
-          console.error('1. Файл слишком большой и Google Drive требует подтверждения');
-          console.error('2. Файл не публичный или ссылка неправильная');
-            console.error('3. Google Drive блокирует автоматическое скачивание больших файлов');
-          console.error('Первые 500 символов ответа:', text.substring(0, 500));
-            throw new Error('Google Drive вернул HTML страницу вместо файла. Для больших файлов Google Drive требует ручного подтверждения. Рекомендуется использовать локальный файл или GitHub Pages.');
-        }
-        try {
-          return JSON.parse(text);
-        } catch (e) {
-          console.error('Ошибка парсинга JSON:', e);
-          console.error('Первые 500 символов ответа:', text.substring(0, 500));
-          throw new Error(`Ошибка парсинга JSON: ${e.message}`);
-        }
-      });
-    })
-    .then(data => {
-      console.log(`Загружено ${data.features.length} точек глубин`);
-      
-      // Проверяем, что карта инициализирована
-      if (!map) {
-        console.error('Карта не инициализирована');
-        return;
-      }
-      
-      // Показываем индикатор загрузки
-      let loadingDiv = null;
-      try {
-        const mapContainer = map.getContainer();
-        if (mapContainer) {
-          loadingDiv = document.createElement('div');
-          loadingDiv.className = 'loading-message';
-          loadingDiv.style.cssText = 'position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 1000; background: rgba(0, 0, 0, 0.7); color: white; padding: 10px; border-radius: 5px; font-size: 12px; text-align: center; pointer-events: none;';
-          loadingDiv.innerHTML = '⏳ Загрузка данных...';
-          mapContainer.appendChild(loadingDiv);
-        }
-      } catch (addError) {
-        console.warn('Не удалось добавить индикатор загрузки:', addError);
-      }
-      
-      // Создаем heatmap из точек
+    // Загружаем контуры независимо от точек
+    if (CONTOURS_FILE_URL) {
       setTimeout(() => {
-        try {
-          createHeatmapFromPoints(data, map);
-          
-          // Загружаем и отображаем контуры глубин (если доступны)
-          if (CONTOURS_FILE_URL) {
-            displayDepthContours(CONTOURS_FILE_URL, map);
-          }
-          
-          // Удаляем индикатор загрузки
-          try {
-            if (loadingDiv && loadingDiv.parentNode) {
-              loadingDiv.parentNode.removeChild(loadingDiv);
-            }
-          } catch (e) {
-            // Игнорируем ошибку удаления
-          }
-          
-          // Добавляем легенду для heatmap и контуров
-      const legend = L.control({ position: 'bottomright' });
-      legend.onAdd = () => {
-        const div = L.DomUtil.create('div', 'legend');
-        div.style.cssText = 'background: rgba(255, 255, 255, 0.95); padding: 12px; border-radius: 6px; font-size: 11px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); max-width: 200px;';
+        displayDepthContours(CONTOURS_FILE_URL, map);
         
-            let legendHtml = '<div style="font-weight: bold; margin-bottom: 8px; font-size: 12px;">Карта глубин</div>';
-            
-            // Легенда для контуров (если они загружены)
-            if (window.depthsContours) {
-              legendHtml += '<div style="margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #ddd;">';
-              legendHtml += '<div style="font-size: 10px; margin-bottom: 4px;">Контуры глубин:</div>';
-              legendHtml += '<span style="background:linear-gradient(to right, #FFFF00, #FFD700, #FFA500, #FF8C00, #4169E1, #0000CD, #00008B); width:100%; height:12px; display:block; border:1px solid #333; border-radius:2px; margin-bottom: 4px;"></span>';
-              legendHtml += '<div style="display: flex; justify-content: space-between; font-size: 9px; color: #666;">';
-              legendHtml += '<span>0м</span><span>20м+</span>';
-              legendHtml += '</div>';
-              legendHtml += '</div>';
-            }
-            
-            // Легенда для heatmap
-            legendHtml += '<div style="margin-top: 4px;">';
-            legendHtml += '<div style="font-size: 10px; margin-bottom: 4px;">Heatmap:</div>';
-            legendHtml += '<span style="background:linear-gradient(to right, blue, cyan, yellow, orange, red); width:100%; height:12px; display:block; border:1px solid #333; border-radius:2px; margin-bottom: 4px;"></span>';
-            legendHtml += '<div style="display: flex; justify-content: space-between; font-size: 9px; color: #666;">';
-            legendHtml += '<span>Глубоко (15м+)</span><span>Мелко (0м)</span>';
-            legendHtml += '</div>';
-            legendHtml += '</div>';
-            
-            div.innerHTML = legendHtml;
-        return div;
-      };
+        // Добавляем легенду для контуров
+        const legend = L.control({ position: 'bottomright' });
+        legend.onAdd = () => {
+          const div = L.DomUtil.create('div', 'legend');
+          div.style.cssText = 'background: rgba(255, 255, 255, 0.95); padding: 12px; border-radius: 6px; font-size: 11px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); max-width: 200px;';
           
-          if (map && map.getContainer()) {
-      legend.addTo(map);
-          }
-        } catch (addError) {
-          console.error('Ошибка при создании heatmap:', addError);
-          // Удаляем индикатор загрузки при ошибке
-          try {
-            if (loadingDiv && loadingDiv.parentNode) {
-              loadingDiv.parentNode.removeChild(loadingDiv);
-            }
-          } catch (e) {
-            // Игнорируем ошибку удаления
-          }
+          let legendHtml = '<div style="font-weight: bold; margin-bottom: 8px; font-size: 12px;">Карта глубин</div>';
+          
+          // Легенда для контуров
+          legendHtml += '<div style="margin-top: 4px;">';
+          legendHtml += '<div style="font-size: 10px; margin-bottom: 4px;">Контуры глубин:</div>';
+          legendHtml += '<span style="background:linear-gradient(to right, #FFFF00, #FFD700, #FFA500, #FF8C00, #4169E1, #0000CD, #00008B); width:100%; height:12px; display:block; border:1px solid #333; border-radius:2px; margin-bottom: 4px;"></span>';
+          legendHtml += '<div style="display: flex; justify-content: space-between; font-size: 9px; color: #666;">';
+          legendHtml += '<span>0м (мелко)</span><span>20м+ (глубоко)</span>';
+          legendHtml += '</div>';
+          legendHtml += '</div>';
+          
+          div.innerHTML = legendHtml;
+          return div;
+        };
+        
+        if (map && map.getContainer()) {
+          legend.addTo(map);
         }
       }, 50);
-    })
-    .catch(err => {
-      console.error('Ошибка загрузки глубин:', err);
-      console.error('Детали ошибки:', err.message, err.stack);
-      
-        // Проверяем, что карта инициализирована перед добавлением элементов
-        if (!map || !map.getContainer()) {
-          console.error('Карта не инициализирована, невозможно показать ошибку');
-          return;
-        }
-      
-        // Показываем пользователю сообщение об ошибке - добавляем напрямую в DOM
-        setTimeout(() => {
-          try {
-            if (map && map.getContainer()) {
-              const mapContainer = map.getContainer();
-              const errorDiv = document.createElement('div');
-              errorDiv.className = 'error-message';
-              errorDiv.style.cssText = 'position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 1000; background: rgba(255, 0, 0, 0.8); color: white; padding: 10px; border-radius: 5px; font-size: 12px; text-align: center; pointer-events: none;';
-              errorDiv.innerHTML = `⚠️ Ошибка загрузки данных глубин: ${err.message}`;
-              mapContainer.appendChild(errorDiv);
-              
-              // Удаляем сообщение через 10 секунд
-              setTimeout(() => {
-                if (errorDiv.parentNode) {
-                  errorDiv.parentNode.removeChild(errorDiv);
-                }
-              }, 10000);
-            }
-          } catch (addError) {
-            console.error('Ошибка при добавлении сообщения об ошибке на карту:', addError);
-          }
-        }, 100);
-      
-      // Пробуем загрузить резервный файл
-      console.log('Попытка загрузить резервный файл desna_depths.geojson...');
-      fetch('desna_depths.geojson?v=1')
-        .then(res => {
-          if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-          return res.text().then(text => JSON.parse(text));
-        })
-        .then(data => {
-          console.log(`Загружен резервный файл: ${data.features.length} точек`);
-          if (map && map.getContainer()) {
-            setTimeout(() => {
-              createHeatmapFromPoints(data, map);
-            }, 100);
-          }
-        })
-        .catch(fallbackErr => {
-          console.error('Ошибка загрузки резервного файла:', fallbackErr);
-        });
-        });
-    });
+    } else {
+      console.warn('CONTOURS_FILE_URL не указан, контуры не будут загружены');
+    }
+  });
+
 
   // Поиск по адресу
   const searchControl = L.control({ position: 'topleft' });
